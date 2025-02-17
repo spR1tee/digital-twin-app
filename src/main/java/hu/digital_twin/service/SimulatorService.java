@@ -21,6 +21,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.*;
 
 @Service
@@ -55,7 +58,7 @@ public class SimulatorService {
         pm.turnon();*/
     }
 
-    public void handleRequest(RequestData requestData) throws VMManager.VMManagementException, NetworkNode.NetworkException {
+    public void handleRequest(RequestData requestData) throws VMManager.VMManagementException, NetworkNode.NetworkException, IOException, InterruptedException {
         String request_type = requestData.getRequestType().toUpperCase();
         switch (request_type) {
             case "UPDATE":
@@ -89,7 +92,24 @@ public class SimulatorService {
                 }
                 break;
             case "REQUEST PREDICTION":
-                // TO DO call prediction functions
+                try {
+                    String scriptPath = "";
+                    ProcessBuilder processBuilder = new ProcessBuilder("python3", scriptPath);
+                    processBuilder.redirectErrorStream(true);
+                    Process process = processBuilder.start();
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        System.out.println(line);
+                    }
+
+                    int exitCode = process.waitFor();
+                    System.out.println("Python script exited with code: " + exitCode);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+                // TO DO: store results and send feedback
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

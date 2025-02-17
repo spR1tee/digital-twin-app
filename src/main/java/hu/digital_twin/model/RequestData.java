@@ -5,6 +5,10 @@ import jakarta.persistence.*;
 import java.util.List;
 
 @Entity
+/*@Table(name = "request_data", indexes = {
+        @Index(name = "idx_requestType", columnList = "requestType"),
+        @Index(name = "idx_vmsCount", columnList = "vmsCount")
+})*/
 public class RequestData {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

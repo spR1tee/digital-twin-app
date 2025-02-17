@@ -34,7 +34,7 @@ public class SimulatorController {
         } catch (IOException e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body("Error while processing data.");
-        } catch (VMManager.VMManagementException | NetworkNode.NetworkException e) {
+        } catch (VMManager.VMManagementException | NetworkNode.NetworkException | InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
