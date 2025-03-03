@@ -15,11 +15,58 @@ public class RequestData {
     private Long id;
     private String requestType;
     private int vmsCount;
-    private long tasksCount;
-
+    private int dataSinceLastSave; // in MB
+    private String timestamp;
+    @Transient
+    private int basedOnLast;
+    @Transient
+    private int predictionLength; // in hour
+    @Transient
+    private String featureName;
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "request_data_id")
     private List<VmData> vmData;
+
+
+    public String getFeatureName() {
+        return featureName;
+    }
+
+    public void setFeatureName(String featureName) {
+        this.featureName = featureName;
+    }
+
+    public int getBasedOnLast() {
+        return basedOnLast;
+    }
+
+    public void setBasedOnLast(int basedOn) {
+        this.basedOnLast = basedOn;
+    }
+
+    public int getPredictionLength() {
+        return predictionLength;
+    }
+
+    public void setPredictionLength(int predictionLength) {
+        this.predictionLength = predictionLength;
+    }
+
+    public int getDataSinceLastSave() {
+        return dataSinceLastSave;
+    }
+
+    public void setDataSinceLastSave(int dataSinceLastSave) {
+        this.dataSinceLastSave = dataSinceLastSave;
+    }
+
+    public String getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(String timestamp) {
+        this.timestamp = timestamp;
+    }
 
     public Long getId() {
         return id;
@@ -35,14 +82,6 @@ public class RequestData {
 
     public void setVmsCount(int vmsCount) {
         this.vmsCount = vmsCount;
-    }
-
-    public long getTasksCount() {
-        return tasksCount;
-    }
-
-    public void setTasksCount(long tasksCount) {
-        this.tasksCount = tasksCount;
     }
 
     public List<VmData> getVmData() {
@@ -68,7 +107,8 @@ public class RequestData {
                 .append("id=").append(id)
                 .append(", requestType='").append(requestType).append('\'')
                 .append(", vmsCount=").append(vmsCount)
-                .append(", tasksCount=").append(tasksCount)
+                .append(", dataSinceLastSave=").append(dataSinceLastSave)
+                .append(", timestamp=").append(timestamp)
                 .append(", vmData=[");
 
         if (vmData != null) {

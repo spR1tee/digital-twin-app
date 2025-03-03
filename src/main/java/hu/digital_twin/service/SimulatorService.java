@@ -1,7 +1,7 @@
 package hu.digital_twin.service;
 
-import hu.mta.sztaki.lpds.cloud.simulator.Timed;
-import hu.mta.sztaki.lpds.cloud.simulator.energy.powermodelling.PowerState;
+import hu.digital_twin.model.RequestData;
+import hu.digital_twin.model.VmData;
 import hu.mta.sztaki.lpds.cloud.simulator.iaas.PhysicalMachine;
 import hu.mta.sztaki.lpds.cloud.simulator.iaas.VMManager;
 import hu.mta.sztaki.lpds.cloud.simulator.iaas.VirtualMachine;
@@ -9,10 +9,7 @@ import hu.mta.sztaki.lpds.cloud.simulator.iaas.constraints.AlterableResourceCons
 import hu.mta.sztaki.lpds.cloud.simulator.io.NetworkNode;
 import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
 import hu.mta.sztaki.lpds.cloud.simulator.io.VirtualAppliance;
-import hu.mta.sztaki.lpds.cloud.simulator.util.PowerTransitionGenerator;
 import hu.u_szeged.inf.fog.simulator.provider.Instance;
-import hu.digital_twin.model.RequestData;
-import hu.digital_twin.model.VmData;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -24,7 +21,8 @@ import org.springframework.web.client.RestTemplate;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class SimulatorService {
@@ -35,8 +33,6 @@ public class SimulatorService {
     private final List<VirtualAppliance> virtualAppliances = new ArrayList<>();
     private final List<VirtualMachine> VMs = new ArrayList<>();
     private final List<Instance> instances = new ArrayList<>();
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final HttpHeaders headers = new HttpHeaders();
     Repository repo;
     PhysicalMachine pm;
 
@@ -85,22 +81,24 @@ public class SimulatorService {
                     }
                     Timed.simulateUntilLastEvent();
                 }*/
-                requestDataService.createRequestData(requestData);
+                //requestDataService.createRequestData(requestData);
                 List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
                     System.out.println(rd.toString());
                 }
+                //System.out.println("UPDATE TEST");
                 break;
             case "REQUEST PREDICTION":
                 try {
-                    String scriptPath = "";
-                    ProcessBuilder processBuilder = new ProcessBuilder("python3", scriptPath);
+                    String scriptPath = "src/main/resources/scripts/linear_regression_model.py";
+                    ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast()), Integer.toString(requestData.getPredictionLength()));
                     processBuilder.redirectErrorStream(true);
                     Process process = processBuilder.start();
                     BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                     String line;
                     while ((line = reader.readLine()) != null) {
                         System.out.println(line);
+                        sendData(line, "http://localhost:8082/dummy/receiveData");
                     }
 
                     int exitCode = process.waitFor();
@@ -109,7 +107,6 @@ public class SimulatorService {
                     e.printStackTrace();
                 }
 
-                // TO DO: store results and send feedback
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");
@@ -155,14 +152,15 @@ public class SimulatorService {
                 new AlterableResourceConstraints(vmData.getCpu(), vmData.getCoreProcessingPower(), vmData.getRam()), vmData.getPricePerTick()));
     }
 
-    public String sendData(String data, String url) {
-
-        headers.setContentType(MediaType.APPLICATION_JSON);
+    public void sendData(String data, String url) {
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
         HttpEntity<String> request = new HttpEntity<>(data, headers);
 
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 
-        return response.getBody();
+        System.out.println(response.getBody());
     }
 
     public boolean checkDiff(VirtualMachine vm, VmData vi) {

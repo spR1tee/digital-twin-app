@@ -1,9 +1,6 @@
 package hu.digital_twin.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 
 @Entity
 public class VmData {
@@ -18,16 +15,34 @@ public class VmData {
     private long reqDisk;
     private double pricePerTick;
     private String status;
-    private long tasks;
+    private String type;
+    private int networkTraffic; // in kb/sec
+    private double usage;
 
     // Getters and setters
 
-    public long getTasks() {
-        return tasks;
+    public int getNetworkTraffic() {
+        return networkTraffic;
     }
 
-    public void setTasks(long tasks) {
-        this.tasks = tasks;
+    public void setNetworkTraffic(int network_traffic) {
+        this.networkTraffic = network_traffic;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public double getUsage() {
+        return usage;
+    }
+
+    public void setUsage(double usage) {
+        this.usage = usage;
     }
 
     public long getReqDisk() {
@@ -114,7 +129,9 @@ public class VmData {
                 ", reqDisk=" + reqDisk +
                 ", pricePerTick=" + pricePerTick +
                 ", status='" + status + '\'' +
-                ", tasks=" + tasks +
+                ", type='" + type + '\'' +
+                ", networkTraffic=" + networkTraffic +
+                ", usage=" + usage +
                 '}';
     }
 }
