@@ -82,11 +82,10 @@ public class SimulatorService {
                     Timed.simulateUntilLastEvent();
                 }*/
                 //requestDataService.createRequestData(requestData);
-                List<RequestData> query = requestDataService.getAllRequestData();
+                /*List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
-                    System.out.println(rd.toString());
-                }
-                //System.out.println("UPDATE TEST");
+                    System.out.println(rd);
+                }*/
                 break;
             case "REQUEST PREDICTION":
                 try {
@@ -160,7 +159,7 @@ public class SimulatorService {
 
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 
-        System.out.println(response.getBody());
+        //System.out.println(response.getBody());
     }
 
     public boolean checkDiff(VirtualMachine vm, VmData vi) {
