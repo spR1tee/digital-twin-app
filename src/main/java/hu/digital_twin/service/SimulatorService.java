@@ -81,7 +81,7 @@ public class SimulatorService {
                     }
                     Timed.simulateUntilLastEvent();
                 }*/
-                //requestDataService.createRequestData(requestData);
+                requestDataService.createRequestData(requestData);
                 /*List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
                     System.out.println(rd);
@@ -106,6 +106,8 @@ public class SimulatorService {
                     e.printStackTrace();
                 }
 
+                break;
+            case "REQUEST FUTURE BEHAVIOUR":
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

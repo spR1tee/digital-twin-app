@@ -106,6 +106,7 @@ def do_pred():
 
     predictions = linear_regression_model.predict(feature_names, dataframe, prediction_length, is_test_data)
     # predictions = np.clip(predictions, 0, 1)
+    print("Requested predictions:")
     print(predictions)
 
 
