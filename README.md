@@ -13,4 +13,4 @@ This project demonstrates the integration of Digital Twin technology with IoT-Cl
 
 ## Usage
 After starting both of the apps, the Dummy App sends the JSON files from the data directory to the Digital Twin App.
-The default sending schedule is set to 5 seconds, but this can be changed.
+The default sending schedule is set to 5 seconds, but this can be changed just as the sample JSON files.
