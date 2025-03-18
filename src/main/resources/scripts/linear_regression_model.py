@@ -80,14 +80,19 @@ def do_pred():
     rows, based_on, pred_length = db_connect()
     paired_data = []
     tmp = 0
+    print(len(rows))
+    rows.reverse()
 
-    for i in range(0, based_on * 2, 2):
-        timestamp = tmp
-        # timestamp = rows[i][0]
-        value1 = rows[i][1]
-        # value2 = rows[i + 1][1]
-        paired_data.append((timestamp, value1))
-        tmp += 1
+    if (len(rows) >= based_on * 2):
+        for i in range(0, based_on * 2, 2):
+            timestamp = tmp
+            # timestamp = rows[i][0]
+            value1 = rows[i][1]
+            # value2 = rows[i + 1][1]
+            paired_data.append((timestamp, value1))
+            tmp += 1
+    else:
+        print("Not enough data")
 
     error_metrics(paired_data)
 

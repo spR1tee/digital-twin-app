@@ -36,55 +36,16 @@ public class SimulatorService {
     Repository repo;
     PhysicalMachine pm;
 
-    public SimulatorService() throws NetworkNode.NetworkException {
-        /*long storageSize = 107_374_182_400L; // 100 GB
-        long bandwidth = 12_500; // 100 Mbps
-
-        final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions =
-                PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
-
-        this.repo = new Repository(storageSize, "repo", bandwidth, bandwidth, bandwidth, new HashMap<String, Integer>(),
-                transitions.get(PowerTransitionGenerator.PowerStateKind.storage),
-                transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-        repo.setState(NetworkNode.State.RUNNING);
-
-        this.pm = new PhysicalMachine(8, 1, 8589934592L, repo, 0, 10_000,
-                transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-        pm.turnon();*/
-    }
+    public SimulatorService() {}
 
     public void handleRequest(RequestData requestData) throws VMManager.VMManagementException, NetworkNode.NetworkException, IOException, InterruptedException {
         String request_type = requestData.getRequestType().toUpperCase();
         switch (request_type) {
             case "UPDATE":
-                /*if (VMs.isEmpty()) {
-                    for (VmData vmData : requestData.getVmInstances()) {
-                        createVM(vmData);
-                    }
-                    for (VirtualMachine vm : VMs) {
-                        System.out.println("First: " + vm.getResourceAllocation().allocated);
-                    }
-                    Timed.simulateUntilLastEvent();
-                } else {
-                    for (VmData vmData : requestData.getVmInstances()) {
-                        VirtualMachine vm = getVM(vmData.getName());
-                        if (checkDiff(vm, vmData)) {
-                            vm.switchoff(true);
-                            vm.switchOn(pm.allocateResources(new AlterableResourceConstraints(vmData.getCpu(),
-                                    vmData.getCoreProcessingPower(), vmData.getRam()), true, PhysicalMachine.defaultAllocLen), repo);
-                            System.out.println("Changed: ");
-                        } else {
-                            System.out.println("Not Changed");
-                        }
-                        System.out.println(vm.getResourceAllocation().allocated);
-                    }
-                    Timed.simulateUntilLastEvent();
-                }*/
                 requestDataService.createRequestData(requestData);
                 /*List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
-                    System.out.println(rd);
+                    System.out.println(rd.toString());
                 }*/
                 break;
             case "REQUEST PREDICTION":
