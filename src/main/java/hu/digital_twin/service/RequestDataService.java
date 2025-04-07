@@ -48,6 +48,10 @@ public class RequestDataService {
         return requestDataRepository.save(requestDataModified);
     }
 
+    public RequestData getLastData() {
+        return requestDataRepository.findTopByOrderByIdDesc();
+    }
+
     @Transactional
     public void deleteAllData() {
         requestDataRepository.deleteAll();

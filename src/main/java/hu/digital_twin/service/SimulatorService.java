@@ -1,5 +1,6 @@
 package hu.digital_twin.service;
 
+import hu.digital_twin.Simulation;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.VmData;
 import hu.mta.sztaki.lpds.cloud.simulator.iaas.PhysicalMachine;
@@ -19,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +29,8 @@ public class SimulatorService {
 
     @Autowired
     private RequestDataService requestDataService;
+    @Autowired
+    private Simulation simulation;
 
     private final List<VirtualAppliance> virtualAppliances = new ArrayList<>();
     private final List<VirtualMachine> VMs = new ArrayList<>();
@@ -38,11 +40,13 @@ public class SimulatorService {
 
     public SimulatorService() {}
 
-    public void handleRequest(RequestData requestData) throws VMManager.VMManagementException, NetworkNode.NetworkException, IOException, InterruptedException {
+    public void handleRequest(RequestData requestData) {
         String request_type = requestData.getRequestType().toUpperCase();
         switch (request_type) {
             case "UPDATE":
-                requestDataService.createRequestData(requestData);
+                simulation.do_alternative("down");
+                simulation.do_alternative("up");
+                //requestDataService.createRequestData(requestData);
                 /*List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
                     System.out.println(rd.toString());
@@ -69,6 +73,9 @@ public class SimulatorService {
 
                 break;
             case "REQUEST FUTURE BEHAVIOUR":
+                simulation.do_baseline();
+                simulation.do_alternative("down");
+                simulation.do_alternative("up");
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

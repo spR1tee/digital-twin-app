@@ -83,7 +83,7 @@ def do_pred():
     print(len(rows))
     rows.reverse()
 
-    if (len(rows) >= based_on * 2):
+    if len(rows) >= based_on * 2:
         for i in range(0, based_on * 2, 2):
             timestamp = tmp
             # timestamp = rows[i][0]
