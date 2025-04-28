@@ -27,7 +27,8 @@ public class SimulatorService {
         String request_type = requestData.getRequestType().toUpperCase();
         switch (request_type) {
             case "UPDATE":
-                requestDataService.createRequestData(requestData);
+                simulation.do_baseline();
+                //requestDataService.createRequestData(requestData);
                 /*List<RequestData> query = requestDataService.getAllRequestData();
                 for(RequestData rd : query) {
                     System.out.println(rd.toString());
@@ -55,8 +56,8 @@ public class SimulatorService {
                 break;
             case "REQUEST FUTURE BEHAVIOUR":
                 simulation.do_baseline();
-                simulation.do_alternative("down");
-                simulation.do_alternative("up");
+                //simulation.do_alternative("down");
+                //simulation.do_alternative("up");
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");
@@ -74,5 +75,7 @@ public class SimulatorService {
 
         //System.out.println(response.getBody());
     }
+
+
 }
 
