@@ -1,8 +1,6 @@
 package hu.digital_twin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import hu.mta.sztaki.lpds.cloud.simulator.iaas.VMManager;
-import hu.mta.sztaki.lpds.cloud.simulator.io.NetworkNode;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.service.SimulatorService;
 import hu.digital_twin.service.VmDataService;

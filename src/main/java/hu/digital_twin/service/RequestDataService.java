@@ -40,7 +40,6 @@ public class RequestDataService {
         RequestData requestDataModified = requestDataRepository.findById(id).orElseThrow(() -> new RuntimeException("Requested data not found"));
         requestDataModified.setRequestType(requestData.getRequestType());
         requestDataModified.setVmsCount(requestData.getVmsCount());
-        requestDataModified.setDataSinceLastSave(requestData.getDataSinceLastSave());
 
         requestDataModified.getVmData().clear();
         requestDataModified.getVmData().addAll(requestData.getVmData());

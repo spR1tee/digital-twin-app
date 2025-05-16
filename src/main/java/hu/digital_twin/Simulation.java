@@ -3,6 +3,7 @@ package hu.digital_twin;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.VmData;
 import hu.digital_twin.service.RequestDataService;
+import hu.digital_twin.service.SimulatorService;
 import hu.digital_twin.service.Transfer;
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
 import hu.mta.sztaki.lpds.cloud.simulator.energy.powermodelling.PowerState;
@@ -36,10 +37,13 @@ import java.util.Map;
 public class Simulation {
     @Autowired
     private RequestDataService requestDataService;
+    @Autowired
+    private SimulatorService simulatorService;
 
     private double totalEnergyConsumption = 0.0;
 
-    public void do_baseline() {
+    public void do_baseline(RequestData currentRequestData) {
+        totalEnergyConsumption = 0.0;
         try {
             //SimLogger.setLogging(1, true);
             IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
@@ -71,8 +75,8 @@ public class Simulation {
             pmRepo1.addLatencies("pmRepo2", 100);
             pmRepo2.addLatencies("pmRepo1", 100);
 
-            RequestData rd = requestDataService.getLastData();
-            for (VmData vd : rd.getVmData()) {
+            RequestData lastUpdateData = requestDataService.getLastData();
+            for (VmData vd : lastUpdateData.getVmData()) {
                 VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
                 iaas.repositories.get(0).registerObject(va);
@@ -92,26 +96,26 @@ public class Simulation {
                 System.out.println(pm);
                 for (VirtualMachine vm : pm.listVMs()) {
                     System.out.println("\t" + vm);
-                    for (VmData vd : rd.getVmData()) {
+                    for (VmData vd : lastUpdateData.getVmData()) {
                         if (vd.getName().equals(vm.getVa().id)) {
                             vm.newComputeTask(50_000, vd.getUsage(), new ConsumptionEventAdapter() {
                                 @Override
                                 public void conComplete() {
                                     if (pm1.listVMs().contains(vm)) {
                                         try {
-                                            new Transfer(pmRepo1, pmRepo2, new StorageObject("data", rd.getDataSinceLastSave(), false));
+                                            new Transfer(pmRepo1, pmRepo2, new StorageObject("data", vd.getDataSinceLastSave(), false));
                                         } catch (NetworkNode.NetworkException ex) {
                                             throw new RuntimeException(ex);
                                         }
                                     } else {
                                         try {
-                                            new Transfer(pmRepo2, pmRepo1, new StorageObject("data", rd.getDataSinceLastSave(), false));
+                                            new Transfer(pmRepo2, pmRepo1, new StorageObject("data", vd.getDataSinceLastSave(), false));
                                         } catch (NetworkNode.NetworkException ex) {
                                             throw new RuntimeException(ex);
                                         }
                                     }
                                     System.out.println("Completed_Time: " + Timed.getFireCount());
-                                    for(EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+                                    for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
                                         totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
                                         edc.stop();
                                     }
@@ -133,11 +137,12 @@ public class Simulation {
             System.out.println("runtime: " + runtime);
             double hours = runtime / 3600000.0;
             double minutes = runtime / 60000.0;
-            System.out.println("Total IoT cost (USD): " + calculateIoTCost(rd, hours));
+            System.out.println("Total IoT cost (USD): " + calculateIoTCost(lastUpdateData, hours));
             System.out.println("Runtime in hours: " + hours);
             System.out.println("Runtime in minutes: " + minutes);
             System.out.println("Time: " + Timed.getFireCount());
             System.out.println("Total energy consumption (kWh): " + totalEnergyConsumption / 2.0);
+            System.out.println("------------------------------------------------\n");
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
 
@@ -151,9 +156,10 @@ public class Simulation {
         }
     }
 
-    public void do_alternative(String mode) {
+    public void do_alternative(String mode, RequestData currentRequestData) {
+        totalEnergyConsumption = 0.0;
         try {
-            SimLogger.setLogging(1, true);
+            //SimLogger.setLogging(1, true);
             IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
 
             final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
@@ -169,9 +175,6 @@ public class Simulation {
             iaas.registerHost(pm1);
             iaas.registerHost(pm2);
 
-            new EnergyDataCollector("pm-1", pm1, true);
-            new EnergyDataCollector("pm-2", pm2, true);
-
             Repository cloudRepo = new Repository(107_374_182_400L, "cloudRepo", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
 
             iaas.registerRepository(cloudRepo);
@@ -184,23 +187,23 @@ public class Simulation {
             pmRepo2.addLatencies("pmRepo1", 100);
 
 
-            RequestData rd = requestDataService.getLastData();
+            RequestData lastUpdateData = requestDataService.getLastData();
             double usage = 0;
             int networkTraffic = 0;
             int numberOfVms;
-            if (rd.getVmData().size() > 1) {
+            if (lastUpdateData.getVmData().size() > 1) {
                 if (mode.equals("down")) {
-                    numberOfVms = rd.getVmData().size() - 1;
+                    numberOfVms = lastUpdateData.getVmData().size() - 1;
                 } else if (mode.equals("up")) {
-                    numberOfVms = rd.getVmData().size() + 1;
+                    numberOfVms = lastUpdateData.getVmData().size() + 1;
                 } else {
                     return;
                 }
-                for (VmData vd : rd.getVmData()) {
+                for (VmData vd : lastUpdateData.getVmData()) {
                     networkTraffic += vd.getNetworkTraffic();
                     usage += vd.getUsage();
                 }
-                VmData tmp = rd.getVmData().get(0);
+                VmData tmp = lastUpdateData.getVmData().get(0);
                 VirtualAppliance va = new VirtualAppliance(tmp.getName(), tmp.getStartupProcess(), networkTraffic / numberOfVms, false, tmp.getReqDisk());
                 AlterableResourceConstraints arc = new AlterableResourceConstraints(tmp.getCpu(), tmp.getCoreProcessingPower(), tmp.getRam());
                 iaas.repositories.get(0).registerObject(va);
@@ -209,6 +212,9 @@ public class Simulation {
                 Timed.simulateUntilLastEvent();
                 long starttime = Timed.getFireCount();
                 System.out.println("starttime: " + starttime);
+
+                new EnergyDataCollector("pm-1", pm1, true);
+                new EnergyDataCollector("pm-2", pm2, true);
 
                 for (PhysicalMachine pm : iaas.machines) {
                     System.out.println(pm);
@@ -219,34 +225,24 @@ public class Simulation {
                             public void conComplete() {
                                 if (pm1.listVMs().contains(vm)) {
                                     try {
-                                        new Transfer(pmRepo1, pmRepo2, new StorageObject("data", rd.getDataSinceLastSave(), false));
+                                        new Transfer(pmRepo1, pmRepo2, new StorageObject("data", lastUpdateData.getVmData().get(0).getDataSinceLastSave(), false));
                                     } catch (NetworkNode.NetworkException ex) {
                                         throw new RuntimeException(ex);
                                     }
                                 } else {
                                     try {
-                                        new Transfer(pmRepo2, pmRepo1, new StorageObject("data", rd.getDataSinceLastSave(), false));
+                                        new Transfer(pmRepo2, pmRepo1, new StorageObject("data", lastUpdateData.getVmData().get(0).getDataSinceLastSave(), false));
                                     } catch (NetworkNode.NetworkException ex) {
                                         throw new RuntimeException(ex);
                                     }
                                 }
                                 System.out.println("Completed_Time: " + Timed.getFireCount());
-                                for(EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+                                for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
                                     totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
                                     edc.stop();
                                 }
-                                System.out.println("Completed_Time: " + Timed.getFireCount());
                             }
                         });
-                    }
-                    for (StorageObject content : pm.localDisk.contents()) {
-                        System.out.println("\t" + content);
-                    }
-                }
-                for (Repository r : iaas.repositories) {
-                    System.out.println(r);
-                    for (StorageObject content : r.contents()) {
-                        System.out.println("\t" + content);
                     }
                 }
 
@@ -261,11 +257,12 @@ public class Simulation {
                 System.out.println("runtime: " + runtime);
                 double hours = runtime / 3600000.0;
                 double minutes = runtime / 60000.0;
-                System.out.println("Total IoT cost (USD): " + calculateIoTCost(rd, hours));
+                System.out.println("Total IoT cost (USD): " + calculateIoTCost(lastUpdateData, hours));
                 System.out.println("Runtime in hours: " + hours);
                 System.out.println("Runtime in minutes: " + minutes);
                 System.out.println("Time: " + Timed.getFireCount());
                 System.out.println("Total energy consumption (kWh): " + totalEnergyConsumption / 2.0);
+                System.out.println("------------------------------------------------\n");
                 EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
                 Timed.resetTimed();
             }

@@ -18,8 +18,17 @@ public class VmData {
     private String type;
     private int networkTraffic; // in kb/sec
     private double usage;
+    private int dataSinceLastSave; // in MBs
 
     // Getters and setters
+
+    public int getDataSinceLastSave() {
+        return dataSinceLastSave;
+    }
+
+    public void setDataSinceLastSave(int dataSinceLastSave) {
+        this.dataSinceLastSave = dataSinceLastSave;
+    }
 
     public int getNetworkTraffic() {
         return networkTraffic;

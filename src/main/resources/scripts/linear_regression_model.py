@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import sys
 import os
@@ -34,6 +35,7 @@ def db_connect():
     feature = sys.argv[1]
     based_on = int(sys.argv[2])
     pred_length = int(sys.argv[3])
+    vm_count = int(sys.argv[4])
 
     query = f"""
     SELECT rd.timestamp, vd.{feature}
@@ -45,7 +47,7 @@ def db_connect():
     rows = cursor.fetchall()
     conn.close()
 
-    return rows, based_on, pred_length
+    return rows, based_on, pred_length, vm_count
 
 
 def error_metrics(data):
@@ -77,30 +79,34 @@ def error_metrics(data):
 
 
 def do_pred():
-    rows, based_on, pred_length = db_connect()
-    paired_data = []
+    rows, based_on, pred_length, vm_count = db_connect()
+    paired_data_lists = {}
+    predictions_list = {}
+
+    for i in range(vm_count):
+        paired_data_lists[f"paired_data{i if i > 0 else ''}"] = []
+        predictions_list[f"prediction{i if i > 0 else ''}"] = []
+
     tmp = 0
     print(len(rows))
     rows.reverse()
+    # print(rows)
 
     if len(rows) >= based_on * 2:
-        for i in range(0, based_on * 2, 2):
+        for i in range(0, based_on * 2, vm_count):
             timestamp = tmp
-            # timestamp = rows[i][0]
-            value1 = rows[i][1]
-            # value2 = rows[i + 1][1]
-            paired_data.append((timestamp, value1))
+
+            for j in range(vm_count):
+                value = rows[i + j][1]
+                list_name = f"paired_data{j if j > 0 else ''}"
+                paired_data_lists[list_name].append((timestamp, value))
+
             tmp += 1
     else:
         print("Not enough data")
 
-    error_metrics(paired_data)
-
-    dataframe = pd.DataFrame(paired_data, columns=["timestamp", "feature"])
-
-    # dataframe["timestamp"] = pd.to_datetime(dataframe["timestamp"])
-
-    # print(dataframe)
+    for list_name in paired_data_lists.keys():
+        error_metrics(paired_data_lists[list_name])
 
     simulation_settings = {}
     linear_regression_model = LinearRegressionModel(simulation_settings)
@@ -109,10 +115,28 @@ def do_pred():
     prediction_length = pred_length
     is_test_data = False
 
-    predictions = linear_regression_model.predict(feature_names, dataframe, prediction_length, is_test_data)
-    # predictions = np.clip(predictions, 0, 1)
-    print("Requested predictions:")
-    print(predictions)
+    for i in range(vm_count):
+        list_name = f"paired_data{i if i > 0 else ''}"
+        data_list = paired_data_lists[list_name]
+        pred_name = f"prediction{i if i > 0 else ''}"
+        predictions_list[pred_name] = linear_regression_model.predict(feature_names,
+                                                                      pd.DataFrame(data_list, columns=["timestamp", "feature"]),
+                                                                      prediction_length,
+                                                                      is_test_data)
+
+    for i in range(vm_count):
+        list_name = f"prediction{i if i > 0 else ''}"
+        data_list = predictions_list[list_name]
+        print(f"Predictions for vm{i}:\n{data_list}")
+
+    print("JSON_DATA_START")
+    result_data = {}
+    for i in range(vm_count):
+        list_name = f"prediction{i if i > 0 else ''}"
+        data_list = predictions_list[list_name]
+        result_data[f"VM{i}"] = data_list
+    print(json.dumps(result_data))
+    print("JSON_DATA_END")
 
 
 if __name__ == '__main__':

@@ -15,7 +15,6 @@ public class RequestData {
     private Long id;
     private String requestType;
     private int vmsCount;
-    private int dataSinceLastSave; // in MB
     private String timestamp;
     @Transient
     private int basedOnLast;
@@ -23,10 +22,20 @@ public class RequestData {
     private int predictionLength; // in hour
     @Transient
     private String featureName;
+
+    @Transient
+    private int simLength;
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "request_data_id")
     private List<VmData> vmData;
 
+    public int getSimLength() {
+        return simLength;
+    }
+
+    public void setSimLength(int simLength) {
+        this.simLength = simLength;
+    }
 
     public String getFeatureName() {
         return featureName;
@@ -50,14 +59,6 @@ public class RequestData {
 
     public void setPredictionLength(int predictionLength) {
         this.predictionLength = predictionLength;
-    }
-
-    public int getDataSinceLastSave() {
-        return dataSinceLastSave;
-    }
-
-    public void setDataSinceLastSave(int dataSinceLastSave) {
-        this.dataSinceLastSave = dataSinceLastSave;
     }
 
     public String getTimestamp() {
@@ -107,7 +108,6 @@ public class RequestData {
                 .append("id=").append(id)
                 .append(", requestType='").append(requestType).append('\'')
                 .append(", vmsCount=").append(vmsCount)
-                .append(", dataSinceLastSave=").append(dataSinceLastSave)
                 .append(", timestamp=").append(timestamp)
                 .append(", vmData=[");
 
