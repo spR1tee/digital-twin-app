@@ -1,9 +1,10 @@
 package hu.digital_twin;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.VmData;
 import hu.digital_twin.service.RequestDataService;
-import hu.digital_twin.service.SimulatorService;
 import hu.digital_twin.service.Transfer;
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
 import hu.mta.sztaki.lpds.cloud.simulator.energy.powermodelling.PowerState;
@@ -22,14 +23,16 @@ import hu.mta.sztaki.lpds.cloud.simulator.io.VirtualAppliance;
 import hu.mta.sztaki.lpds.cloud.simulator.util.PowerTransitionGenerator;
 import hu.u_szeged.inf.fog.simulator.demo.ScenarioBase;
 import hu.u_szeged.inf.fog.simulator.util.EnergyDataCollector;
-import hu.u_szeged.inf.fog.simulator.util.SimLogger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -37,10 +40,11 @@ import java.util.Map;
 public class Simulation {
     @Autowired
     private RequestDataService requestDataService;
-    @Autowired
-    private SimulatorService simulatorService;
 
     private double totalEnergyConsumption = 0.0;
+
+    public Simulation() {
+    }
 
     public void do_baseline(RequestData currentRequestData) {
         totalEnergyConsumption = 0.0;
@@ -82,6 +86,7 @@ public class Simulation {
                 iaas.repositories.get(0).registerObject(va);
                 iaas.requestVM(va, arc, iaas.repositories.get(0), 1);
             }
+
 
             //Starting the VMs
             Timed.simulateUntilLastEvent();
@@ -283,6 +288,53 @@ public class Simulation {
             totalCost += vd.getCpu() * cpuCost * time;
         }
         return totalCost;
+    }
+
+    public Map<String, List<Double>> prediction(RequestData requestData) {
+        try {
+            String scriptPath = "src/main/resources/scripts/linear_regression_model.py";
+            ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast()), Integer.toString(requestData.getPredictionLength()), Integer.toString(requestData.getVmsCount()));
+            processBuilder.redirectErrorStream(true);
+            Process process = processBuilder.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            StringBuilder jsonData = new StringBuilder();
+            boolean jsonStarted = false;
+            boolean jsonEnded = false;
+            Map<String, List<Double>> predictionData = new HashMap<>();
+            while ((line = reader.readLine()) != null) {
+                if (line.equals("JSON_DATA_START")) {
+                    jsonStarted = true;
+                    continue;
+                }
+                if (line.equals("JSON_DATA_END")) {
+                    jsonEnded = true;
+                    continue;
+                }
+
+                if (jsonStarted && !jsonEnded) {
+                    jsonData.append(line);
+                } else {
+                    System.out.println(line);
+                }
+            }
+
+            if (!jsonData.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                predictionData = mapper.readValue(
+                        jsonData.toString(),
+                        new TypeReference<Map<String, List<Double>>>() {
+                        }
+                );
+            }
+            //sendData(line, "http://localhost:8082/dummy/receiveData");
+            int exitCode = process.waitFor();
+            System.out.println("Python script exited with code: " + exitCode);
+            return predictionData;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }
 
