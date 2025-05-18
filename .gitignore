@@ -12,6 +12,7 @@ sim_res/
 *.iws
 *.iml
 *.ipr
+*.png
 
 ### Eclipse ###
 .apt_generated

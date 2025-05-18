@@ -19,8 +19,6 @@ public class SimulatorController {
 
     @Autowired
     private SimulatorService simulatorService;
-    @Autowired
-    private VmDataService vmDataService;
 
     @PostMapping("/request")
     public ResponseEntity<String> request(@RequestBody String jsonContent) {

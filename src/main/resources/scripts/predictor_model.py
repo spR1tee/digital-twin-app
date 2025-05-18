@@ -49,13 +49,11 @@ class PredictorModel(ABC):
     @staticmethod
     def create_future_timestamp(dataframe, prediction_length):
         future_timestamps = []
-        #print(dataframe)
         last_timestamp = dataframe["timestamp"].values.tolist()[-1]
-        #print(last_timestamp)
-
-        for t in range(0, prediction_length):
-            future_timestamps.append(last_timestamp + t + 1)
-
+        # print(last_timestamp)
+        for t in range(0, prediction_length, 5):
+            future_timestamps.append(last_timestamp + t + 5)
+        # print(future_timestamps)
         return future_timestamps
 
     @staticmethod

@@ -1,7 +1,9 @@
 package hu.digital_twin;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.VmData;
 import hu.digital_twin.service.RequestDataService;
@@ -30,10 +32,7 @@ import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Component
 @Scope("prototype")
@@ -43,13 +42,22 @@ public class Simulation {
 
     private double totalEnergyConsumption = 0.0;
 
+    private int totalMovedData = 0;
+
+    private int combinedData = 0;
+
+    private double taskNumber = 0;
+
+    private double threshold = 0;
+
     public Simulation() {
     }
 
-    public void do_baseline(RequestData currentRequestData) {
+    public String doBaseline(RequestData currentRequestData) {
         totalEnergyConsumption = 0.0;
+        totalMovedData = 0;
+        int numberOfVms = 0;
         try {
-            //SimLogger.setLogging(1, true);
             IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
 
             final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
@@ -80,6 +88,12 @@ public class Simulation {
             pmRepo2.addLatencies("pmRepo1", 100);
 
             RequestData lastUpdateData = requestDataService.getLastData();
+            System.out.println(lastUpdateData);
+            for (VmData vd : lastUpdateData.getVmData()) {
+                System.out.println(vd);
+            }
+            //Map<String, List<Double>> predictionData = prediction(currentRequestData);
+
             for (VmData vd : lastUpdateData.getVmData()) {
                 VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
@@ -87,12 +101,10 @@ public class Simulation {
                 iaas.requestVM(va, arc, iaas.repositories.get(0), 1);
             }
 
-
             //Starting the VMs
             Timed.simulateUntilLastEvent();
             long starttime = Timed.getFireCount();
             System.out.println("starttime: " + starttime);
-
 
             new EnergyDataCollector("pm-1", pm1, true);
             new EnergyDataCollector("pm-2", pm2, true);
@@ -100,21 +112,26 @@ public class Simulation {
             for (PhysicalMachine pm : iaas.machines) {
                 System.out.println(pm);
                 for (VirtualMachine vm : pm.listVMs()) {
+                    numberOfVms++;
                     System.out.println("\t" + vm);
                     for (VmData vd : lastUpdateData.getVmData()) {
                         if (vd.getName().equals(vm.getVa().id)) {
-                            vm.newComputeTask(50_000, vd.getUsage(), new ConsumptionEventAdapter() {
+                            vm.newComputeTask(100_000, vd.getUsage(), new ConsumptionEventAdapter() {
                                 @Override
                                 public void conComplete() {
                                     if (pm1.listVMs().contains(vm)) {
+                                        int filesize = 600;
                                         try {
-                                            new Transfer(pmRepo1, pmRepo2, new StorageObject("data", vd.getDataSinceLastSave(), false));
+                                            new Transfer(pmRepo1, pmRepo2, new StorageObject("data", filesize, false));
+                                            totalMovedData += filesize;
                                         } catch (NetworkNode.NetworkException ex) {
                                             throw new RuntimeException(ex);
                                         }
                                     } else {
+                                        int filesize = 600;
                                         try {
-                                            new Transfer(pmRepo2, pmRepo1, new StorageObject("data", vd.getDataSinceLastSave(), false));
+                                            new Transfer(pmRepo2, pmRepo1, new StorageObject("data", filesize, false));
+                                            totalMovedData += filesize;
                                         } catch (NetworkNode.NetworkException ex) {
                                             throw new RuntimeException(ex);
                                         }
@@ -130,26 +147,19 @@ public class Simulation {
                     }
                 }
             }
-
-            Timed.simulateUntilLastEvent();
-
+            Timed.simulateUntil(Timed.getFireCount() + (60 * 60 * 1000)); // 1 hour
+            //Timed.simulateUntilLastEvent();
             long stoptime = Timed.getFireCount();
             System.out.println(stoptime);
 
             EnergyDataCollector.energyCollectors.clear();
 
             long runtime = stoptime - starttime;
-            System.out.println("runtime: " + runtime);
-            double hours = runtime / 3600000.0;
-            double minutes = runtime / 60000.0;
-            System.out.println("Total IoT cost (USD): " + calculateIoTCost(lastUpdateData, hours));
-            System.out.println("Runtime in hours: " + hours);
-            System.out.println("Runtime in minutes: " + minutes);
-            System.out.println("Time: " + Timed.getFireCount());
-            System.out.println("Total energy consumption (kWh): " + totalEnergyConsumption / 2.0);
-            System.out.println("------------------------------------------------\n");
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
+
+            return stats;
 
 
         } catch (InstantiationException | IllegalAccessException | IllegalArgumentException |
@@ -159,12 +169,13 @@ public class Simulation {
         } catch (NetworkNode.NetworkException e) {
             throw new RuntimeException(e);
         }
+        return null;
     }
 
-    public void do_alternative(String mode, RequestData currentRequestData) {
+    public String doAlternative(String mode, RequestData currentRequestData) {
         totalEnergyConsumption = 0.0;
+        totalMovedData = 0;
         try {
-            //SimLogger.setLogging(1, true);
             IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
 
             final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
@@ -202,7 +213,7 @@ public class Simulation {
                 } else if (mode.equals("up")) {
                     numberOfVms = lastUpdateData.getVmData().size() + 1;
                 } else {
-                    return;
+                    return mode;
                 }
                 for (VmData vd : lastUpdateData.getVmData()) {
                     networkTraffic += vd.getNetworkTraffic();
@@ -221,6 +232,10 @@ public class Simulation {
                 new EnergyDataCollector("pm-1", pm1, true);
                 new EnergyDataCollector("pm-2", pm2, true);
 
+                for (VmData vd : lastUpdateData.getVmData()) {
+                    combinedData += vd.getDataSinceLastSave();
+                }
+
                 for (PhysicalMachine pm : iaas.machines) {
                     System.out.println(pm);
                     for (VirtualMachine vm : pm.listVMs()) {
@@ -230,13 +245,17 @@ public class Simulation {
                             public void conComplete() {
                                 if (pm1.listVMs().contains(vm)) {
                                     try {
-                                        new Transfer(pmRepo1, pmRepo2, new StorageObject("data", lastUpdateData.getVmData().get(0).getDataSinceLastSave(), false));
+                                        int filesize = 600;
+                                        new Transfer(pmRepo1, pmRepo2, new StorageObject("data", 1200 / numberOfVms, false));
+                                        totalMovedData += 1200 / numberOfVms;
                                     } catch (NetworkNode.NetworkException ex) {
                                         throw new RuntimeException(ex);
                                     }
                                 } else {
                                     try {
-                                        new Transfer(pmRepo2, pmRepo1, new StorageObject("data", lastUpdateData.getVmData().get(0).getDataSinceLastSave(), false));
+                                        int filesize = 600;
+                                        new Transfer(pmRepo2, pmRepo1, new StorageObject("data", 1200 / numberOfVms, false));
+                                        totalMovedData += 1200 / numberOfVms;
                                     } catch (NetworkNode.NetworkException ex) {
                                         throw new RuntimeException(ex);
                                     }
@@ -251,7 +270,8 @@ public class Simulation {
                     }
                 }
 
-                Timed.simulateUntilLastEvent();
+                Timed.simulateUntil(Timed.getFireCount() + (60 * 60 * 1000)); // 1 hour
+                //Timed.simulateUntilLastEvent();
 
                 long stoptime = Timed.getFireCount();
                 System.out.println(stoptime);
@@ -259,22 +279,42 @@ public class Simulation {
                 EnergyDataCollector.energyCollectors.clear();
 
                 long runtime = stoptime - starttime;
-                System.out.println("runtime: " + runtime);
-                double hours = runtime / 3600000.0;
-                double minutes = runtime / 60000.0;
-                System.out.println("Total IoT cost (USD): " + calculateIoTCost(lastUpdateData, hours));
-                System.out.println("Runtime in hours: " + hours);
-                System.out.println("Runtime in minutes: " + minutes);
-                System.out.println("Time: " + Timed.getFireCount());
-                System.out.println("Total energy consumption (kWh): " + totalEnergyConsumption / 2.0);
-                System.out.println("------------------------------------------------\n");
+                String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+                System.out.println(stats);
                 EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
                 Timed.resetTimed();
+
+                return stats;
             }
 
         } catch (InvocationTargetException | InstantiationException | IllegalAccessException | NoSuchMethodException |
                  VMManager.VMManagementException | NetworkNode.NetworkException e) {
             throw new RuntimeException(e);
+        }
+        return null;
+    }
+
+    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms) {
+        double hours = runtime / 3600000.0;
+        double minutes = runtime / 60000.0;
+        double iotCost = calculateIoTCost(lastUpdateData, hours);
+        double correctedEnergyConsumption = totalEnergyConsumption / 2.0;
+
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+            Map<String, Object> statsMap = new LinkedHashMap<>();
+            statsMap.put("runtime_ms", runtime);
+            statsMap.put("runtime_minutes", minutes);
+            statsMap.put("runtime_hours", hours);
+            statsMap.put("total_iot_cost_usd", iotCost);
+            statsMap.put("total_energy_consumption_kwh", correctedEnergyConsumption);
+            statsMap.put("total_moved_data_mb", totalMovedData);
+            statsMap.put("number_of_vms", vms);
+
+            return objectMapper.writeValueAsString(statsMap);
+        } catch (JsonProcessingException e) {
+            return "Failed to generate JSON stats";
         }
     }
 
@@ -293,7 +333,7 @@ public class Simulation {
     public Map<String, List<Double>> prediction(RequestData requestData) {
         try {
             String scriptPath = "src/main/resources/scripts/linear_regression_model.py";
-            ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast()), Integer.toString(requestData.getPredictionLength()), Integer.toString(requestData.getVmsCount()));
+            ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast() * 12), Integer.toString(requestData.getPredictionLength() * 60), Integer.toString(requestData.getVmsCount()));
             processBuilder.redirectErrorStream(true);
             Process process = processBuilder.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -320,14 +360,15 @@ public class Simulation {
             }
 
             if (!jsonData.isEmpty()) {
-                ObjectMapper mapper = new ObjectMapper();
-                predictionData = mapper.readValue(
+                ObjectMapper objectMapper = new ObjectMapper();
+                objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+                predictionData = objectMapper.readValue(
                         jsonData.toString(),
                         new TypeReference<Map<String, List<Double>>>() {
                         }
                 );
             }
-            //sendData(line, "http://localhost:8082/dummy/receiveData");
+
             int exitCode = process.waitFor();
             System.out.println("Python script exited with code: " + exitCode);
             return predictionData;
