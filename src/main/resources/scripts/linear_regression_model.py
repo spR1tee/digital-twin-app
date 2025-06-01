@@ -28,15 +28,16 @@ class LinearRegressionModel(PredictorModel):
 
 
 def db_connect():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, "../spring_db/database.db")
-
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
     feature = sys.argv[1]
     based_on = int(sys.argv[2])
     pred_length = int(sys.argv[3])
     vm_count = int(sys.argv[4])
+    tenant_id = sys.argv[5]
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(script_dir, "..", "spring_db", f"{tenant_id}.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
     query = f"""
     SELECT rd.timestamp, vd.{feature}, vd.name

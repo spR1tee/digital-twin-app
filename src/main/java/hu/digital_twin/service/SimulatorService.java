@@ -29,18 +29,15 @@ public class SimulatorService {
         switch (request_type) {
             case "UPDATE":
                 requestDataService.createRequestData(requestData);
-                /*List<RequestData> query = requestDataService.getAllRequestData();
-                for(RequestData rd : query) {
-                    System.out.println(rd.toString());
-                }*/
                 break;
             case "REQUEST PREDICTION":
                 Map<String, List<Double>> predictionData = simulation.prediction(requestData);
                 break;
             case "REQUEST FUTURE BEHAVIOUR":
                 sendData(simulation.doBaseline(requestData), "http://localhost:8082/dummy/receiveData");
-                sendData(simulation.doAlternative("down", requestData), "http://localhost:8082/dummy/receiveData");
-                sendData(simulation.doAlternative("up", requestData), "http://localhost:8082/dummy/receiveData");
+                //sendData(simulation.doAlternative("down", requestData), "http://localhost:8082/dummy/receiveData");
+                //sendData(simulation.doAlternative("up", requestData), "http://localhost:8082/dummy/receiveData");
+                sendData(simulation.usePrediction(requestData), "http://localhost:8082/dummy/receiveData");
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

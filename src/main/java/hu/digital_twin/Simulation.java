@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import hu.digital_twin.context.TenantContext;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.VmData;
 import hu.digital_twin.service.RequestDataService;
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
+import java.sql.Time;
 import java.util.*;
 
 @Component
@@ -46,11 +48,157 @@ public class Simulation {
 
     private int combinedData = 0;
 
-    private double taskNumber = 0;
+    private double threshold = 0.8;
 
-    private double threshold = 0;
+    private static final int SECONDS_PER_READING = 5;
+    private static final int SECONDS_PER_MINUTE = 60;
+    private static final int READINGS_PER_MINUTE = SECONDS_PER_MINUTE / SECONDS_PER_READING;
 
     public Simulation() {
+    }
+
+    private static long calculateMaxInstructionsPerSecond(int numCores, double instrPerMsPerCore) {
+        return (long) (numCores * instrPerMsPerCore * 1000); // ms -> sec
+    }
+
+    public String usePrediction(RequestData currentRequestData) {
+        totalEnergyConsumption = 0.0;
+        totalMovedData = 0;
+        int numberOfVms = 0;
+        try {
+            IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
+
+            final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
+
+            Repository pmRepo1 = new Repository(107_374_182_400L, "pmRepo1", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
+
+            PhysicalMachine pm1 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo1, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
+
+            Repository pmRepo2 = new Repository(107_374_182_400L, "pmRepo2", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
+
+            PhysicalMachine pm2 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo2, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
+
+            pmRepo1.setState(NetworkNode.State.RUNNING);
+            pmRepo2.setState(NetworkNode.State.RUNNING);
+
+            iaas.registerHost(pm1);
+            iaas.registerHost(pm2);
+
+            Repository cloudRepo = new Repository(107_374_182_400L, "cloudRepo", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
+
+            iaas.registerRepository(cloudRepo);
+
+            cloudRepo.addLatencies("pmRepo1", 100);
+            cloudRepo.addLatencies("pmRepo2", 125);
+            pmRepo1.addLatencies("cloudRepo", 100);
+            pmRepo2.addLatencies("cloudRepo", 100);
+            pmRepo1.addLatencies("pmRepo2", 100);
+            pmRepo2.addLatencies("pmRepo1", 100);
+
+            RequestData lastUpdateData = requestDataService.getLastData();
+            Map<String, Long> maxInstrPerSecond = new HashMap<>();
+            for (VmData vd : lastUpdateData.getVmData()) {
+                VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
+                AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
+                iaas.repositories.get(0).registerObject(va);
+                iaas.requestVM(va, arc, iaas.repositories.get(0), 1);
+                long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
+                maxInstrPerSecond.put(vd.getName(), maxInstr);
+            }
+
+            Map<String, List<Double>> predictionData = prediction(currentRequestData);
+            Map<String, List<Double>> avgLoadsPerMinute = new HashMap<>();
+            Map<String, List<Long>> taskInstructionsPerMinute = new HashMap<>();
+
+            for (Map.Entry<String, List<Double>> entry : predictionData.entrySet()) {
+                String vmId = entry.getKey();
+                List<Double> loadValues = entry.getValue();
+
+                List<Double> avgLoads = new ArrayList<>();
+                List<Long> instructions = new ArrayList<>();
+
+                for (int i = 0; i < loadValues.size(); i += READINGS_PER_MINUTE) {
+                    int endIdx = Math.min(i + READINGS_PER_MINUTE, loadValues.size());
+                    List<Double> window = loadValues.subList(i, endIdx);
+
+                    double avg = window.stream().mapToDouble(d -> d).average().orElse(0.0);
+                    long instr = Math.round(SECONDS_PER_MINUTE * (avg / 100.0) * maxInstrPerSecond.get(vmId));
+
+                    avgLoads.add(avg);
+                    instructions.add(instr);
+                }
+
+                avgLoadsPerMinute.put(vmId, avgLoads);
+                taskInstructionsPerMinute.put(vmId, instructions);
+            }
+
+            Timed.simulateUntilLastEvent();
+            long starttime = Timed.getFireCount();
+
+            new EnergyDataCollector("pm-1", pm1, true);
+            new EnergyDataCollector("pm-2", pm2, true);
+
+
+            for (PhysicalMachine pm : iaas.machines) {
+                System.out.println(pm);
+                for (VirtualMachine vm : pm.listVMs()) {
+                    numberOfVms++;
+                    System.out.println("\t" + vm);
+                    for (Map.Entry<String, List<Double>> entry : avgLoadsPerMinute.entrySet()) {
+                        String vmId = entry.getKey();
+                        List<Double> loads = avgLoadsPerMinute.get(vmId);
+                        List<Long> tasks = taskInstructionsPerMinute.get(vmId);
+
+                        if (vm.getVa().id.equals(vmId)) {
+                            for (int i = 0; i < loads.size(); i++) {
+                                /*System.out.println(tasks.get(i));
+                                System.out.println(loads.get(i));*/
+                                vm.newComputeTask(tasks.get(i), loads.get(i), new ConsumptionEventAdapter() {
+                                    @Override
+                                    public void conComplete() {
+                                        if (pm1.listVMs().contains(vm)) {
+                                            int filesize = 600;
+                                            try {
+                                                new Transfer(pmRepo1, pmRepo2, new StorageObject("data", filesize, false));
+                                                totalMovedData += filesize;
+                                            } catch (NetworkNode.NetworkException ex) {
+                                                throw new RuntimeException(ex);
+                                            }
+                                        } else {
+                                            int filesize = 600;
+                                            try {
+                                                new Transfer(pmRepo2, pmRepo1, new StorageObject("data", filesize, false));
+                                                totalMovedData += filesize;
+                                            } catch (NetworkNode.NetworkException ex) {
+                                                throw new RuntimeException(ex);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
+            for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+                totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
+                edc.stop();
+            }
+
+            long stoptime = Timed.getFireCount();
+            EnergyDataCollector.energyCollectors.clear();
+
+            long runtime = stoptime - starttime;
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+            EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
+            Timed.resetTimed();
+
+            return stats;
+        } catch (NetworkNode.NetworkException | InvocationTargetException | InstantiationException |
+                 IllegalAccessException | NoSuchMethodException | VMManager.VMManagementException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public String doBaseline(RequestData currentRequestData) {
@@ -92,7 +240,6 @@ public class Simulation {
             for (VmData vd : lastUpdateData.getVmData()) {
                 System.out.println(vd);
             }
-            //Map<String, List<Double>> predictionData = prediction(currentRequestData);
 
             for (VmData vd : lastUpdateData.getVmData()) {
                 VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
@@ -116,7 +263,7 @@ public class Simulation {
                     System.out.println("\t" + vm);
                     for (VmData vd : lastUpdateData.getVmData()) {
                         if (vd.getName().equals(vm.getVa().id)) {
-                            vm.newComputeTask(100_000, vd.getUsage(), new ConsumptionEventAdapter() {
+                            vm.newComputeTask(50000, vd.getUsage(), new ConsumptionEventAdapter() {
                                 @Override
                                 public void conComplete() {
                                     if (pm1.listVMs().contains(vm)) {
@@ -136,22 +283,18 @@ public class Simulation {
                                             throw new RuntimeException(ex);
                                         }
                                     }
-                                    System.out.println("Completed_Time: " + Timed.getFireCount());
-                                    for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
-                                        totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
-                                        edc.stop();
-                                    }
                                 }
                             });
                         }
                     }
                 }
             }
-            Timed.simulateUntil(Timed.getFireCount() + (60 * 60 * 1000)); // 1 hour
-            //Timed.simulateUntilLastEvent();
+            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength())); // 1 hour
+            for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+                totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
+                edc.stop();
+            }
             long stoptime = Timed.getFireCount();
-            System.out.println(stoptime);
-
             EnergyDataCollector.energyCollectors.clear();
 
             long runtime = stoptime - starttime;
@@ -270,12 +413,8 @@ public class Simulation {
                     }
                 }
 
-                Timed.simulateUntil(Timed.getFireCount() + (60 * 60 * 1000)); // 1 hour
-                //Timed.simulateUntilLastEvent();
-
+                Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
                 long stoptime = Timed.getFireCount();
-                System.out.println(stoptime);
-
                 EnergyDataCollector.energyCollectors.clear();
 
                 long runtime = stoptime - starttime;
@@ -298,7 +437,6 @@ public class Simulation {
         double hours = runtime / 3600000.0;
         double minutes = runtime / 60000.0;
         double iotCost = calculateIoTCost(lastUpdateData, hours);
-        double correctedEnergyConsumption = totalEnergyConsumption / 2.0;
 
         try {
             ObjectMapper objectMapper = new ObjectMapper();
@@ -308,7 +446,7 @@ public class Simulation {
             statsMap.put("runtime_minutes", minutes);
             statsMap.put("runtime_hours", hours);
             statsMap.put("total_iot_cost_usd", iotCost);
-            statsMap.put("total_energy_consumption_kwh", correctedEnergyConsumption);
+            statsMap.put("total_energy_consumption_kwh", totalEnergyConsumption);
             statsMap.put("total_moved_data_mb", totalMovedData);
             statsMap.put("number_of_vms", vms);
 
@@ -333,7 +471,7 @@ public class Simulation {
     public Map<String, List<Double>> prediction(RequestData requestData) {
         try {
             String scriptPath = "src/main/resources/scripts/linear_regression_model.py";
-            ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast() * 12), Integer.toString(requestData.getPredictionLength() * 60), Integer.toString(requestData.getVmsCount()));
+            ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast() * 12), Integer.toString(requestData.getPredictionLength() * 60), Integer.toString(requestData.getVmsCount()), TenantContext.getTenantId());
             processBuilder.redirectErrorStream(true);
             Process process = processBuilder.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));

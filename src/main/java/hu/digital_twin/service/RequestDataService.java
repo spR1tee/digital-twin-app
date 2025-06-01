@@ -2,6 +2,9 @@ package hu.digital_twin.service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+
+import hu.digital_twin.config.DataSourceConfig;
+import hu.digital_twin.context.TenantContext;
 import hu.digital_twin.model.RequestData;
 import hu.digital_twin.model.RequestDataRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +18,8 @@ public class RequestDataService {
 
     @Autowired
     private RequestDataRepository requestDataRepository;
+    @Autowired
+    private DataSourceConfig dataSourceConfig;
 
     public List<RequestData> getAllRequestData() {
         return requestDataRepository.findAll();
@@ -25,6 +30,7 @@ public class RequestDataService {
     }
 
     public RequestData createRequestData(RequestData requestData) {
+        dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         LocalDateTime currentDateTime = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         String formattedDateTime = currentDateTime.format(formatter);
@@ -33,10 +39,12 @@ public class RequestDataService {
     }
 
     public void deleteRequestData(Long id) {
+        dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         requestDataRepository.deleteById(id);
     }
 
     public RequestData updateRequestData(Long id, RequestData requestData) {
+        dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         RequestData requestDataModified = requestDataRepository.findById(id).orElseThrow(() -> new RuntimeException("Requested data not found"));
         requestDataModified.setRequestType(requestData.getRequestType());
         requestDataModified.setVmsCount(requestData.getVmsCount());
@@ -48,11 +56,13 @@ public class RequestDataService {
     }
 
     public RequestData getLastData() {
+        dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         return requestDataRepository.findTopByOrderByIdDesc();
     }
 
     @Transactional
     public void deleteAllData() {
+        dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         requestDataRepository.deleteAll();
     }
 }

@@ -19,7 +19,7 @@ public class RequestData {
     @Transient
     private int basedOnLast;
     @Transient
-    private int predictionLength; // in hour
+    private int predictionLength; // in minutes
     @Transient
     private String featureName;
 
