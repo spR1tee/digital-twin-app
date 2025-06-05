@@ -33,7 +33,3 @@ To enable fog simulation and energy/resource calculations, the **[DISSECT-CF-Fog
 4. Apply the changes and rebuild the project
 
 This enables the Digital Twin App to simulate fog computing scenarios using the DISSECT-CF-Fog engine.
-
----
-
-Ha szeretnéd, hozzáadhatok egy `mvn install`-os vagy Ant-alapú build példát is a DISSECT-CF-Fog buildeléséhez.
