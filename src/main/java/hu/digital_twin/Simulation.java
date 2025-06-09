@@ -33,7 +33,6 @@ import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
-import java.sql.Time;
 import java.util.*;
 
 @Component
@@ -46,9 +45,9 @@ public class Simulation {
 
     private int totalMovedData = 0;
 
-    private int combinedData = 0;
+    private int totalTasks = 0;
 
-    private double threshold = 0.8;
+    private int combinedData = 0;
 
     private static final int SECONDS_PER_READING = 5;
     private static final int SECONDS_PER_MINUTE = 60;
@@ -57,51 +56,162 @@ public class Simulation {
     public Simulation() {
     }
 
-    private static long calculateMaxInstructionsPerSecond(int numCores, double instrPerMsPerCore) {
-        return (long) (numCores * instrPerMsPerCore * 1000); // ms -> sec
+    public static class IaaSContext {
+        public IaaSService iaas;
+        public List<PhysicalMachine> pms = new ArrayList<>();
+        public List<Repository> pmRepos = new ArrayList<>();
+        public Repository cloudRepo;
+
+        private final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions;
+
+
+        public IaaSContext(IaaSService iaas,
+                           Repository cloudRepo,
+                           EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions) {
+            this.iaas = iaas;
+            this.cloudRepo = cloudRepo;
+            this.transitions = transitions;
+        }
+
+        public void addPhysicalMachines(int count) throws NetworkNode.NetworkException {
+            for (int i = 0; i < count; i++) {
+                int index = pms.size() + 1;
+                String repoName = "pmRepo" + index;
+
+                Repository repo = new Repository(
+                        107_374_182_400L, repoName,
+                        12_500, 12_500, 12_500,
+                        new HashMap<>(),
+                        transitions.get(PowerTransitionGenerator.PowerStateKind.storage),
+                        transitions.get(PowerTransitionGenerator.PowerStateKind.network)
+                );
+                repo.setState(NetworkNode.State.RUNNING);
+
+                PhysicalMachine pm = new PhysicalMachine(
+                        8, 1, 17_179_869_184L,
+                        repo, 0, 10_000,
+                        transitions.get(PowerTransitionGenerator.PowerStateKind.host)
+                );
+
+                iaas.registerHost(pm);
+                pms.add(pm);
+                pmRepos.add(repo);
+
+                if (cloudRepo != null) {
+                    cloudRepo.addLatencies(repoName, 100);
+                    repo.addLatencies("cloudRepo", 100);
+                }
+
+                for (Repository other : pmRepos) {
+                    if (!other.getName().equals(repo.getName())) {
+                        repo.addLatencies(other.getName(), 100);
+                        other.addLatencies(repo.getName(), 100);
+                    }
+                }
+            }
+        }
     }
 
+    public IaaSContext initializeIaaS(int initialPMCount) throws Exception {
+        IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
+
+        EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions =
+                PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
+
+        Repository cloudRepo = new Repository(
+                107_374_182_400L, "cloudRepo",
+                12_500, 12_500, 12_500,
+                new HashMap<>(),
+                transitions.get(PowerTransitionGenerator.PowerStateKind.storage),
+                transitions.get(PowerTransitionGenerator.PowerStateKind.network)
+        );
+
+        cloudRepo.setState(NetworkNode.State.RUNNING);
+        iaas.registerRepository(cloudRepo);
+
+        IaaSContext context = new IaaSContext(iaas, cloudRepo, transitions);
+        context.addPhysicalMachines(initialPMCount);
+
+        return context;
+    }
+
+    public class DataTransferOnConsumption extends ConsumptionEventAdapter {
+
+        private final VirtualMachine vm;
+        private final IaaSContext context;
+        private final int fileSize;
+
+        public DataTransferOnConsumption(IaaSContext context, VirtualMachine vm, int fileSize) {
+            this.context = context;
+            this.vm = vm;
+            this.fileSize = fileSize;
+        }
+
+        @Override
+        public void conComplete() {
+            Repository source = null;
+            Repository target = null;
+
+            for (int i = 0; i < context.pms.size(); i++) {
+                if (context.pms.get(i).listVMs().contains(vm)) {
+                    source = context.pmRepos.get(i);
+
+                    for (int j = 0; j < context.pmRepos.size(); j++) {
+                        if (j != i) {
+                            target = context.pmRepos.get(j);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            try {
+                String fileName = "data";
+                new Transfer(source, target, new StorageObject(fileName, fileSize, false));
+                totalMovedData += fileSize;
+            } catch (NetworkNode.NetworkException ex) {
+                throw new RuntimeException("Transfer failed", ex);
+            }
+        }
+    }
+
+    public void setupEDC(IaaSContext context) {
+        int index = 1;
+        for (PhysicalMachine pm : context.iaas.machines) {
+            String name = "pm-" + index++;
+            new EnergyDataCollector(name, pm, true);
+        }
+    }
+
+    public void stopEDC() {
+        for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+            totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
+            edc.stop();
+        }
+        EnergyDataCollector.energyCollectors.clear();
+    }
+
+
     public String usePrediction(RequestData currentRequestData) {
+        Map<String, VirtualMachine> backUpVms = new HashMap<>();
+        double loadThreshold = 0.8;
         totalEnergyConsumption = 0.0;
         totalMovedData = 0;
+        totalTasks = 0;
         int numberOfVms = 0;
+
         try {
-            IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
-
-            final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
-
-            Repository pmRepo1 = new Repository(107_374_182_400L, "pmRepo1", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm1 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo1, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            Repository pmRepo2 = new Repository(107_374_182_400L, "pmRepo2", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm2 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo2, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            pmRepo1.setState(NetworkNode.State.RUNNING);
-            pmRepo2.setState(NetworkNode.State.RUNNING);
-
-            iaas.registerHost(pm1);
-            iaas.registerHost(pm2);
-
-            Repository cloudRepo = new Repository(107_374_182_400L, "cloudRepo", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            iaas.registerRepository(cloudRepo);
-
-            cloudRepo.addLatencies("pmRepo1", 100);
-            cloudRepo.addLatencies("pmRepo2", 125);
-            pmRepo1.addLatencies("cloudRepo", 100);
-            pmRepo2.addLatencies("cloudRepo", 100);
-            pmRepo1.addLatencies("pmRepo2", 100);
-            pmRepo2.addLatencies("pmRepo1", 100);
-
+            IaaSContext context = initializeIaaS(2);
+            context.addPhysicalMachines(1);
             RequestData lastUpdateData = requestDataService.getLastData();
             Map<String, Long> maxInstrPerSecond = new HashMap<>();
+
             for (VmData vd : lastUpdateData.getVmData()) {
                 VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
-                iaas.repositories.get(0).registerObject(va);
-                iaas.requestVM(va, arc, iaas.repositories.get(0), 1);
+                context.iaas.repositories.get(0).registerObject(va);
+                context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1);
                 long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
                 maxInstrPerSecond.put(vd.getName(), maxInstr);
             }
@@ -134,69 +244,59 @@ public class Simulation {
 
             Timed.simulateUntilLastEvent();
             long starttime = Timed.getFireCount();
+            setupEDC(context);
 
-            new EnergyDataCollector("pm-1", pm1, true);
-            new EnergyDataCollector("pm-2", pm2, true);
-
-
-            for (PhysicalMachine pm : iaas.machines) {
-                System.out.println(pm);
+            for (PhysicalMachine pm : context.iaas.machines) {
                 for (VirtualMachine vm : pm.listVMs()) {
                     numberOfVms++;
-                    System.out.println("\t" + vm);
                     for (Map.Entry<String, List<Double>> entry : avgLoadsPerMinute.entrySet()) {
                         String vmId = entry.getKey();
-                        List<Double> loads = avgLoadsPerMinute.get(vmId);
-                        List<Long> tasks = taskInstructionsPerMinute.get(vmId);
-
                         if (vm.getVa().id.equals(vmId)) {
+                            List<Double> loads = avgLoadsPerMinute.get(vmId);
+                            List<Long> tasks = taskInstructionsPerMinute.get(vmId);
                             for (int i = 0; i < loads.size(); i++) {
-                                /*System.out.println(tasks.get(i));
-                                System.out.println(loads.get(i));*/
-                                vm.newComputeTask(tasks.get(i), loads.get(i), new ConsumptionEventAdapter() {
-                                    @Override
-                                    public void conComplete() {
-                                        if (pm1.listVMs().contains(vm)) {
-                                            int filesize = 600;
-                                            try {
-                                                new Transfer(pmRepo1, pmRepo2, new StorageObject("data", filesize, false));
-                                                totalMovedData += filesize;
-                                            } catch (NetworkNode.NetworkException ex) {
-                                                throw new RuntimeException(ex);
-                                            }
-                                        } else {
-                                            int filesize = 600;
-                                            try {
-                                                new Transfer(pmRepo2, pmRepo1, new StorageObject("data", filesize, false));
-                                                totalMovedData += filesize;
-                                            } catch (NetworkNode.NetworkException ex) {
-                                                throw new RuntimeException(ex);
+                                totalTasks += tasks.get(i);
+                                if (loads.get(i) >= loadThreshold) {
+                                    if (backUpVms.containsKey(vmId)) {
+                                        vm.newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, vm, 600));
+                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                    } else {
+                                        for (VmData vd : lastUpdateData.getVmData()) {
+                                            if (vd.getName().equals(vmId)) {
+                                                VirtualAppliance va = new VirtualAppliance(vd.getName() + "back_up", 0, vd.getNetworkTraffic(), false, vd.getReqDisk());
+                                                AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
+                                                context.iaas.repositories.get(0).registerObject(va);
+                                                VirtualMachine backUp = context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1)[0];
+                                                backUpVms.put(vmId, backUp);
+                                                numberOfVms++;
+                                                System.out.println(backUp.getState());
+                                                vm.newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, vm, 600));
+                                                backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
                                             }
                                         }
                                     }
-                                });
+                                } else {
+                                    vm.newComputeTask(tasks.get(i), loads.get(i), new DataTransferOnConsumption(context, vm, 600));
+                                }
                             }
                         }
                     }
                 }
             }
+
             Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
-            for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
-                totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
-                edc.stop();
-            }
+
+            stopEDC();
 
             long stoptime = Timed.getFireCount();
-            EnergyDataCollector.energyCollectors.clear();
-
             long runtime = stoptime - starttime;
             String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+            System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
 
             return stats;
-        } catch (NetworkNode.NetworkException | InvocationTargetException | InstantiationException |
-                 IllegalAccessException | NoSuchMethodException | VMManager.VMManagementException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -204,101 +304,52 @@ public class Simulation {
     public String doBaseline(RequestData currentRequestData) {
         totalEnergyConsumption = 0.0;
         totalMovedData = 0;
+        totalTasks = 0;
         int numberOfVms = 0;
+
         try {
-            IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
-
-            final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
-
-            Repository pmRepo1 = new Repository(107_374_182_400L, "pmRepo1", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm1 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo1, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            Repository pmRepo2 = new Repository(107_374_182_400L, "pmRepo2", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm2 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo2, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            pmRepo1.setState(NetworkNode.State.RUNNING);
-            pmRepo2.setState(NetworkNode.State.RUNNING);
-
-            iaas.registerHost(pm1);
-            iaas.registerHost(pm2);
-
-            Repository cloudRepo = new Repository(107_374_182_400L, "cloudRepo", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            iaas.registerRepository(cloudRepo);
-
-            cloudRepo.addLatencies("pmRepo1", 100);
-            cloudRepo.addLatencies("pmRepo2", 125);
-            pmRepo1.addLatencies("cloudRepo", 100);
-            pmRepo2.addLatencies("cloudRepo", 100);
-            pmRepo1.addLatencies("pmRepo2", 100);
-            pmRepo2.addLatencies("pmRepo1", 100);
+            IaaSContext context = initializeIaaS(2);
 
             RequestData lastUpdateData = requestDataService.getLastData();
-            System.out.println(lastUpdateData);
-            for (VmData vd : lastUpdateData.getVmData()) {
-                System.out.println(vd);
-            }
 
+            Map<String, Long> maxInstrPerSecond = new HashMap<>();
             for (VmData vd : lastUpdateData.getVmData()) {
                 VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
-                iaas.repositories.get(0).registerObject(va);
-                iaas.requestVM(va, arc, iaas.repositories.get(0), 1);
+                context.iaas.repositories.get(0).registerObject(va);
+                context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1);
+                long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
+                maxInstrPerSecond.put(vd.getName(), maxInstr);
             }
 
             //Starting the VMs
             Timed.simulateUntilLastEvent();
             long starttime = Timed.getFireCount();
-            System.out.println("starttime: " + starttime);
+            setupEDC(context);
 
-            new EnergyDataCollector("pm-1", pm1, true);
-            new EnergyDataCollector("pm-2", pm2, true);
-
-            for (PhysicalMachine pm : iaas.machines) {
-                System.out.println(pm);
+            for (PhysicalMachine pm : context.iaas.machines) {
                 for (VirtualMachine vm : pm.listVMs()) {
                     numberOfVms++;
-                    System.out.println("\t" + vm);
                     for (VmData vd : lastUpdateData.getVmData()) {
                         if (vd.getName().equals(vm.getVa().id)) {
-                            vm.newComputeTask(50000, vd.getUsage(), new ConsumptionEventAdapter() {
-                                @Override
-                                public void conComplete() {
-                                    if (pm1.listVMs().contains(vm)) {
-                                        int filesize = 600;
-                                        try {
-                                            new Transfer(pmRepo1, pmRepo2, new StorageObject("data", filesize, false));
-                                            totalMovedData += filesize;
-                                        } catch (NetworkNode.NetworkException ex) {
-                                            throw new RuntimeException(ex);
-                                        }
-                                    } else {
-                                        int filesize = 600;
-                                        try {
-                                            new Transfer(pmRepo2, pmRepo1, new StorageObject("data", filesize, false));
-                                            totalMovedData += filesize;
-                                        } catch (NetworkNode.NetworkException ex) {
-                                            throw new RuntimeException(ex);
-                                        }
-                                    }
-                                }
-                            });
+                            for (int i = 0; i < currentRequestData.getPredictionLength(); i++) {
+                                long instr = Math.round(SECONDS_PER_MINUTE * (vd.getUsage() / 100.0) * maxInstrPerSecond.get(vd.getName()));
+                                totalTasks += (int) instr;
+                                vm.newComputeTask(instr, vd.getUsage(), new DataTransferOnConsumption(context, vm, 600));
+                            }
                         }
                     }
                 }
             }
-            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength())); // 1 hour
-            for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
-                totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
-                edc.stop();
-            }
-            long stoptime = Timed.getFireCount();
-            EnergyDataCollector.energyCollectors.clear();
 
+            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
+
+            stopEDC();
+
+            long stoptime = Timed.getFireCount();
             long runtime = stoptime - starttime;
             String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+            System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
 
@@ -309,7 +360,7 @@ public class Simulation {
                  InvocationTargetException | NoSuchMethodException | SecurityException |
                  VMManager.VMManagementException e) {
             e.printStackTrace();
-        } catch (NetworkNode.NetworkException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         return null;
@@ -318,6 +369,7 @@ public class Simulation {
     public String doAlternative(String mode, RequestData currentRequestData) {
         totalEnergyConsumption = 0.0;
         totalMovedData = 0;
+        totalTasks = 0;
         try {
             IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
 
@@ -380,10 +432,9 @@ public class Simulation {
                 }
 
                 for (PhysicalMachine pm : iaas.machines) {
-                    System.out.println(pm);
                     for (VirtualMachine vm : pm.listVMs()) {
-                        System.out.println("\t" + vm);
-                        vm.newComputeTask((double) 100_000 / numberOfVms, usage / numberOfVms, new ConsumptionEventAdapter() {
+                        totalTasks += 100000 / numberOfVms;
+                        vm.newComputeTask(Math.round((float) 100_000 / numberOfVms), usage / numberOfVms, new ConsumptionEventAdapter() {
                             @Override
                             public void conComplete() {
                                 if (pm1.listVMs().contains(vm)) {
@@ -404,22 +455,21 @@ public class Simulation {
                                     }
                                 }
                                 System.out.println("Completed_Time: " + Timed.getFireCount());
-                                for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
-                                    totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
-                                    edc.stop();
-                                }
                             }
                         });
                     }
                 }
-
                 Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
+                for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
+                    totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
+                    edc.stop();
+                }
                 long stoptime = Timed.getFireCount();
                 EnergyDataCollector.energyCollectors.clear();
 
                 long runtime = stoptime - starttime;
                 String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
-                System.out.println(stats);
+                System.out.println(totalTasks);
                 EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
                 Timed.resetTimed();
 
@@ -448,7 +498,7 @@ public class Simulation {
             statsMap.put("total_iot_cost_usd", iotCost);
             statsMap.put("total_energy_consumption_kwh", totalEnergyConsumption);
             statsMap.put("total_moved_data_mb", totalMovedData);
-            statsMap.put("number_of_vms", vms);
+            statsMap.put("number_of_vms_utilized", vms);
 
             return objectMapper.writeValueAsString(statsMap);
         } catch (JsonProcessingException e) {
@@ -466,6 +516,10 @@ public class Simulation {
             totalCost += vd.getCpu() * cpuCost * time;
         }
         return totalCost;
+    }
+
+    private static long calculateMaxInstructionsPerSecond(int numCores, double instrPerMsPerCore) {
+        return (long) (numCores * instrPerMsPerCore * 1000); // ms -> sec
     }
 
     public Map<String, List<Double>> prediction(RequestData requestData) {

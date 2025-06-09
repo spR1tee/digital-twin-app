@@ -35,9 +35,8 @@ public class SimulatorService {
                 break;
             case "REQUEST FUTURE BEHAVIOUR":
                 sendData(simulation.doBaseline(requestData), "http://localhost:8082/dummy/receiveData");
-                //sendData(simulation.doAlternative("down", requestData), "http://localhost:8082/dummy/receiveData");
-                //sendData(simulation.doAlternative("up", requestData), "http://localhost:8082/dummy/receiveData");
                 sendData(simulation.usePrediction(requestData), "http://localhost:8082/dummy/receiveData");
+                //sendData(simulation.doAlternative("up", requestData), "http://localhost:8082/dummy/receiveData");
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

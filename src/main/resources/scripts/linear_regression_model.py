@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 from error_metrics import ErrorMetrics
 from sklearn.linear_model import LinearRegression
-
 from predictor_model import PredictorModel
 
 class LinearRegressionModel(PredictorModel):
@@ -21,10 +20,9 @@ class LinearRegressionModel(PredictorModel):
 
         future_timestamps = PredictorModel.create_future_timestamp(dataframe=dataframe,
                                                                    prediction_length=prediction_length)
-        timestamps_copy = future_timestamps.copy()
         result = model.predict(np.array(future_timestamps).reshape(-1, 1))
 
-        return result.tolist(), timestamps_copy
+        return result.tolist()
 
 
 def db_connect():
@@ -71,7 +69,7 @@ def error_metrics(data):
     prediction_length = len(actual) * 5
     is_test_data = False
 
-    predictions, future_timestamps = linear_regression_model.predict(feature_names, df, prediction_length, is_test_data)
+    predictions = linear_regression_model.predict(feature_names, df, prediction_length, is_test_data)
 
     print("MSE:")
     print(ErrorMetrics.MSE(actual, predictions))
@@ -122,46 +120,14 @@ def do_pred():
         data_list = paired_data_lists[list_name]
         df = pd.DataFrame(data_list, columns=["timestamp", "feature"])
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["usage_smooth"] = df["feature"].rolling(window=60).mean()
         start_time = df["timestamp"].min()
         df["timestamp"] = (df["timestamp"] - start_time).dt.total_seconds()
-        '''plt.figure(figsize=(12, 5))
-        plt.plot(df["timestamp"], df["feature"], label="Eredeti", alpha=0.5)
-        plt.plot(df["timestamp"], df["usage_smooth"], label="Mozgóátlag", linewidth=2)
-        plt.xlabel("Time")
-        plt.ylabel("Usage")
-        plt.title("VM usage mozgóátlaggal")
-        plt.legend()
-        plt.grid()
-        plt.savefig(f"{list_name}mozgoatlag.png", dpi=300)
-
-        plt.figure(figsize=(10, 5))
-        plt.plot(df['timestamp'], df['feature'], marker='o', label='VM usage')
-        plt.title('VM usage')
-        plt.xlabel('Time')
-        plt.ylabel('Usage')
-        plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f"{list_name}.png", dpi=300)'''
 
         pred_name = f"prediction{i if i > 0 else ''}"
-        df["feature"] = df["feature"].rolling(window=60).mean()
-        df["feature"] = df["feature"].fillna(0)
-        print(df)
-        predictions_list[pred_name], timestamps_copy = linear_regression_model.predict(feature_names,
+        predictions_list[pred_name] = linear_regression_model.predict(feature_names,
                                                                       df,
                                                                       prediction_length,
                                                                       is_test_data)
-        '''plt.figure(figsize=(10, 5))
-        plt.plot(timestamps_copy, predictions_list[pred_name], marker='o', label='VM usage')
-        plt.title('Predicted VM usage')
-        plt.xlabel('Time')
-        plt.ylabel('Usage')
-        plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f"{pred_name}.png", dpi=300)'''
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
