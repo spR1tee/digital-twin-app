@@ -47,8 +47,6 @@ public class Simulation {
 
     private int totalTasks = 0;
 
-    private int combinedData = 0;
-
     private static final int SECONDS_PER_READING = 5;
     private static final int SECONDS_PER_MINUTE = 60;
     private static final int READINGS_PER_MINUTE = SECONDS_PER_MINUTE / SECONDS_PER_READING;
@@ -264,7 +262,7 @@ public class Simulation {
                                     } else {
                                         for (VmData vd : lastUpdateData.getVmData()) {
                                             if (vd.getName().equals(vmId)) {
-                                                VirtualAppliance va = new VirtualAppliance(vd.getName() + "back_up", 0, vd.getNetworkTraffic(), false, vd.getReqDisk());
+                                                VirtualAppliance va = new VirtualAppliance(vd.getName() + "backup", 0, vd.getNetworkTraffic(), false, vd.getReqDisk());
                                                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
                                                 context.iaas.repositories.get(0).registerObject(va);
                                                 VirtualMachine backUp = context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1)[0];
@@ -365,123 +363,6 @@ public class Simulation {
                  VMManager.VMManagementException e) {
             e.printStackTrace();
         } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        return null;
-    }
-
-    public String doAlternative(String mode, RequestData currentRequestData) {
-        totalEnergyConsumption = 0.0;
-        totalMovedData = 0;
-        totalTasks = 0;
-        try {
-            IaaSService iaas = new IaaSService(FirstFitScheduler.class, AlwaysOnMachines.class);
-
-            final EnumMap<PowerTransitionGenerator.PowerStateKind, Map<String, PowerState>> transitions = PowerTransitionGenerator.generateTransitions(20, 200, 300, 10, 20);
-
-            Repository pmRepo1 = new Repository(107_374_182_400L, "pmRepo1", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm1 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo1, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            Repository pmRepo2 = new Repository(107_374_182_400L, "pmRepo2", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            PhysicalMachine pm2 = new PhysicalMachine(8, 1, 8_589_934_592L, pmRepo2, 0, 10_000, transitions.get(PowerTransitionGenerator.PowerStateKind.host));
-
-            iaas.registerHost(pm1);
-            iaas.registerHost(pm2);
-
-            Repository cloudRepo = new Repository(107_374_182_400L, "cloudRepo", 12_500, 12_500, 12_500, new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage), transitions.get(PowerTransitionGenerator.PowerStateKind.network));
-
-            iaas.registerRepository(cloudRepo);
-
-            cloudRepo.addLatencies("pmRepo1", 100);
-            cloudRepo.addLatencies("pmRepo2", 125);
-            pmRepo1.addLatencies("cloudRepo", 100);
-            pmRepo2.addLatencies("cloudRepo", 100);
-            pmRepo1.addLatencies("pmRepo2", 100);
-            pmRepo2.addLatencies("pmRepo1", 100);
-
-
-            RequestData lastUpdateData = requestDataService.getLastData();
-            double usage = 0;
-            int networkTraffic = 0;
-            int numberOfVms;
-            if (lastUpdateData.getVmData().size() > 1) {
-                if (mode.equals("down")) {
-                    numberOfVms = lastUpdateData.getVmData().size() - 1;
-                } else if (mode.equals("up")) {
-                    numberOfVms = lastUpdateData.getVmData().size() + 1;
-                } else {
-                    return mode;
-                }
-                for (VmData vd : lastUpdateData.getVmData()) {
-                    networkTraffic += vd.getNetworkTraffic();
-                    usage += vd.getUsage();
-                }
-                VmData tmp = lastUpdateData.getVmData().get(0);
-                VirtualAppliance va = new VirtualAppliance(tmp.getName(), tmp.getStartupProcess(), networkTraffic / numberOfVms, false, tmp.getReqDisk());
-                AlterableResourceConstraints arc = new AlterableResourceConstraints(tmp.getCpu(), tmp.getCoreProcessingPower(), tmp.getRam());
-                iaas.repositories.get(0).registerObject(va);
-                iaas.requestVM(va, arc, iaas.repositories.get(0), numberOfVms);
-
-                Timed.simulateUntilLastEvent();
-                long starttime = Timed.getFireCount();
-                System.out.println("starttime: " + starttime);
-
-                new EnergyDataCollector("pm-1", pm1, true);
-                new EnergyDataCollector("pm-2", pm2, true);
-
-                for (VmData vd : lastUpdateData.getVmData()) {
-                    combinedData += vd.getDataSinceLastSave();
-                }
-
-                for (PhysicalMachine pm : iaas.machines) {
-                    for (VirtualMachine vm : pm.listVMs()) {
-                        totalTasks += 100000 / numberOfVms;
-                        vm.newComputeTask(Math.round((float) 100_000 / numberOfVms), usage / numberOfVms, new ConsumptionEventAdapter() {
-                            @Override
-                            public void conComplete() {
-                                if (pm1.listVMs().contains(vm)) {
-                                    try {
-                                        int filesize = 600;
-                                        new Transfer(pmRepo1, pmRepo2, new StorageObject("data", 1200 / numberOfVms, false));
-                                        totalMovedData += 1200 / numberOfVms;
-                                    } catch (NetworkNode.NetworkException ex) {
-                                        throw new RuntimeException(ex);
-                                    }
-                                } else {
-                                    try {
-                                        int filesize = 600;
-                                        new Transfer(pmRepo2, pmRepo1, new StorageObject("data", 1200 / numberOfVms, false));
-                                        totalMovedData += 1200 / numberOfVms;
-                                    } catch (NetworkNode.NetworkException ex) {
-                                        throw new RuntimeException(ex);
-                                    }
-                                }
-                                System.out.println("Completed_Time: " + Timed.getFireCount());
-                            }
-                        });
-                    }
-                }
-                Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
-                for (EnergyDataCollector edc : EnergyDataCollector.energyCollectors) {
-                    totalEnergyConsumption += edc.energyConsumption / 1000 / 3_600_000;
-                    edc.stop();
-                }
-                long stoptime = Timed.getFireCount();
-                EnergyDataCollector.energyCollectors.clear();
-
-                long runtime = stoptime - starttime;
-                String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null);
-                System.out.println(totalTasks);
-                EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
-                Timed.resetTimed();
-
-                return stats;
-            }
-
-        } catch (InvocationTargetException | InstantiationException | IllegalAccessException | NoSuchMethodException |
-                 VMManager.VMManagementException | NetworkNode.NetworkException e) {
             throw new RuntimeException(e);
         }
         return null;

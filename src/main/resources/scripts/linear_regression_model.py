@@ -90,7 +90,6 @@ def do_pred():
         paired_data_lists[f"paired_data{i if i > 0 else ''}"] = []
         predictions_list[f"prediction{i if i > 0 else ''}"] = []
 
-    tmp = 0
     print(len(rows))
     rows.reverse()
     print(rows)
