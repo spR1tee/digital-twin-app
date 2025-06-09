@@ -245,6 +245,7 @@ public class Simulation {
             Timed.simulateUntilLastEvent();
             long starttime = Timed.getFireCount();
             setupEDC(context);
+            int tmp = 0;
 
             for (PhysicalMachine pm : context.iaas.machines) {
                 for (VirtualMachine vm : pm.listVMs()) {
@@ -258,8 +259,8 @@ public class Simulation {
                                 totalTasks += tasks.get(i);
                                 if (loads.get(i) >= loadThreshold) {
                                     if (backUpVms.containsKey(vmId)) {
-                                        vm.newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, vm, 600));
-                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                        vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
                                     } else {
                                         for (VmData vd : lastUpdateData.getVmData()) {
                                             if (vd.getName().equals(vmId)) {
@@ -270,13 +271,16 @@ public class Simulation {
                                                 backUpVms.put(vmId, backUp);
                                                 numberOfVms++;
                                                 System.out.println(backUp.getState());
-                                                vm.newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, vm, 600));
-                                                backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, loads.get(i) / 2, new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                                tmp = i + 1;
+                                                Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * tmp));
+                                                System.out.println(backUp.getState());
+                                                vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                                backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
                                             }
                                         }
                                     }
                                 } else {
-                                    vm.newComputeTask(tasks.get(i), loads.get(i), new DataTransferOnConsumption(context, vm, 600));
+                                    vm.newComputeTask(tasks.get(i), 1 - loads.get(i), new DataTransferOnConsumption(context, vm, 600));
                                 }
                             }
                         }
@@ -284,13 +288,13 @@ public class Simulation {
                 }
             }
 
-            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
+            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * (currentRequestData.getPredictionLength() - tmp)));
 
             stopEDC();
 
             long stoptime = Timed.getFireCount();
             long runtime = stoptime - starttime;
-            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, backUpVms);
             System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
@@ -335,7 +339,7 @@ public class Simulation {
                             for (int i = 0; i < currentRequestData.getPredictionLength(); i++) {
                                 long instr = Math.round(SECONDS_PER_MINUTE * (vd.getUsage() / 100.0) * maxInstrPerSecond.get(vd.getName()));
                                 totalTasks += (int) instr;
-                                vm.newComputeTask(instr, vd.getUsage(), new DataTransferOnConsumption(context, vm, 600));
+                                vm.newComputeTask(instr, 1 - vd.getUsage(), new DataTransferOnConsumption(context, vm, 600));
                             }
                         }
                     }
@@ -348,7 +352,7 @@ public class Simulation {
 
             long stoptime = Timed.getFireCount();
             long runtime = stoptime - starttime;
-            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null);
             System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
             Timed.resetTimed();
@@ -468,7 +472,7 @@ public class Simulation {
                 EnergyDataCollector.energyCollectors.clear();
 
                 long runtime = stoptime - starttime;
-                String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms);
+                String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null);
                 System.out.println(totalTasks);
                 EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
                 Timed.resetTimed();
@@ -483,10 +487,10 @@ public class Simulation {
         return null;
     }
 
-    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms) {
+    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms, Map<String, VirtualMachine> backUpVms) {
         double hours = runtime / 3600000.0;
         double minutes = runtime / 60000.0;
-        double iotCost = calculateIoTCost(lastUpdateData, hours);
+        double iotCost = calculateIoTCost(lastUpdateData, hours, backUpVms);
 
         try {
             ObjectMapper objectMapper = new ObjectMapper();
@@ -506,14 +510,21 @@ public class Simulation {
         }
     }
 
-    public double calculateIoTCost(RequestData rd, double time) {
+    public double calculateIoTCost(RequestData rd, double time, Map<String, VirtualMachine> backUpVms) {
         double ramCost = 0.005;
         double cpuCost = 0.05;
         double totalCost = 0.0;
 
+
         for (VmData vd : rd.getVmData()) {
             totalCost += (vd.getRam() / (1024.0 * 1024.0 * 1024.0)) * ramCost * time;
             totalCost += vd.getCpu() * cpuCost * time;
+            if (backUpVms != null) {
+                if (backUpVms.containsKey(vd.getName())) {
+                    totalCost += (vd.getRam() / (1024.0 * 1024.0 * 1024.0)) * ramCost * time;
+                    totalCost += vd.getCpu() * cpuCost * time;
+                }
+            }
         }
         return totalCost;
     }
