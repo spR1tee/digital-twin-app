@@ -15,25 +15,32 @@ import java.util.Map;
 
 @Service
 public class SimulatorService {
-
+    // Szolgáltatás az adatok adatbázisba mentéséhez
     @Autowired
     private RequestDataService requestDataService;
+    // A szimulációs logikát megvalósító komponens
     @Autowired
     private Simulation simulation;
 
     public SimulatorService() {
     }
 
+    /**
+     * A beérkezett kérés típusának megfelelően végrehajtja a megfelelő műveletet
+     */
     public void handleRequest(RequestData requestData) {
         String request_type = requestData.getRequestType().toUpperCase();
         switch (request_type) {
             case "UPDATE":
+                // UPDATE esetén mentjük az adatokat adatbázisba
                 requestDataService.createRequestData(requestData);
                 break;
             case "REQUEST PREDICTION":
+                // Predikciós modell futtatása a kapott adatokra
                 Map<String, List<Double>> predictionData = simulation.prediction(requestData);
                 break;
             case "REQUEST FUTURE BEHAVIOUR":
+                // A baseline és az előrejelzett adatok elküldése a kliensnek
                 sendData(simulation.doBaseline(requestData), "http://localhost:8082/dummy/receiveData");
                 sendData(simulation.usePrediction(requestData), "http://localhost:8082/dummy/receiveData");
                 break;
@@ -43,7 +50,9 @@ public class SimulatorService {
         }
     }
 
-
+    /**
+     * JSON formátumú adat küldése POST kéréssel a megadott URL-re
+     */
     public void sendData(String data, String url) {
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();

@@ -16,7 +16,7 @@ import java.io.IOException;
 @RestController
 @RequestMapping("/simulator")
 public class SimulatorController {
-
+    // Automatikusan bekötött szimulációs szolgáltatás
     @Autowired
     private SimulatorService simulatorService;
 

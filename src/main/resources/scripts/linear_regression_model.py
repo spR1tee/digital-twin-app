@@ -26,17 +26,20 @@ class LinearRegressionModel(PredictorModel):
 
 
 def db_connect():
+    # Bemeneti paraméterek: feature, history length, predikciós hossz, VM szám, tenant azonosító
     feature = sys.argv[1]
     based_on = int(sys.argv[2])
     pred_length = int(sys.argv[3])
     vm_count = int(sys.argv[4])
     tenant_id = sys.argv[5]
 
+    # SQLite adatbázis elérési út
     script_dir = os.path.dirname(os.path.abspath(__file__))
     db_path = os.path.join(script_dir, "..", "spring_db", f"{tenant_id}.db")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # SQL lekérdezés a szükséges adatokhoz (timestamp, érték, VM név)
     query = f"""
     SELECT rd.timestamp, vd.{feature}, vd.name
     FROM request_data rd
@@ -53,7 +56,7 @@ def db_connect():
 
 
 def error_metrics(data):
-    index = int(len(data) * 3 / 4)
+    index = int(len(data) * 3 / 4)  # 75%-os tanító és 25%-os teszt szétválasztá
     actual = [tuple[1] for tuple in data[index:]]
     train_data = data[:index]
 
@@ -86,14 +89,16 @@ def do_pred():
     paired_data_lists = {}
     predictions_list = {}
 
+    # Inicializálás külön VM-ekre
     for i in range(vm_count):
         paired_data_lists[f"paired_data{i if i > 0 else ''}"] = []
         predictions_list[f"prediction{i if i > 0 else ''}"] = []
 
     print(len(rows))
-    rows.reverse()
+    rows.reverse()  # Időrendbe helyezés
     print(rows)
 
+    # Adatok felosztása VM-ek szerint
     if len(rows) >= based_on * vm_count:
         for i in range(0, based_on * vm_count, vm_count):
             for j in range(vm_count):
@@ -104,6 +109,7 @@ def do_pred():
     else:
         print("Not enough data")
 
+    # Hibametrikák számítása minden VM-re
     for list_name in paired_data_lists.keys():
         error_metrics(paired_data_lists[list_name])
 
@@ -114,6 +120,7 @@ def do_pred():
     prediction_length = pred_length
     is_test_data = False
 
+    # Predikciók VM-enként
     for i in range(vm_count):
         list_name = f"paired_data{i if i > 0 else ''}"
         data_list = paired_data_lists[list_name]
