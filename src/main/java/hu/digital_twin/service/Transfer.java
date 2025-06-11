@@ -25,8 +25,6 @@ public class Transfer extends ConsumptionEventAdapter {
     @Override
     public void conComplete() {
         this.from.deregisterObject(this.so);
-        System.out.println("Start: " + this.start + " from: " +
-                this.from.getName() + " to: " + this.to.getName() + " end: " + Timed.getFireCount());
     }
 
 

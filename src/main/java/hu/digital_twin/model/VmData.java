@@ -21,7 +21,7 @@ public class VmData {
     @Transient
     private int dataSinceLastSave; // in MBs
 
-    // Getters and setters
+    public VmData() {}
 
     public int getDataSinceLastSave() {
         return dataSinceLastSave;

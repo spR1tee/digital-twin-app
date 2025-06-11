@@ -9,6 +9,40 @@ import pandas as pd
 from error_metrics import ErrorMetrics
 from sklearn.linear_model import LinearRegression
 from predictor_model import PredictorModel
+from statsmodels.tsa.arima.model import ARIMA
+from pmdarima import auto_arima
+
+
+class ArimaModel(PredictorModel):
+    def __init__(self, simulation_settings):
+        super().__init__("ARIMA", simulation_settings)
+
+    def predict(self, feature_name, dataframe, prediction_length, is_test_data):
+        if self._simulation_settings["predictor"]["hyperparameters"].get("auto_optimize", False):
+                model = auto_arima(
+                    dataframe["feature"].values,
+                    start_p=1, start_q=1,
+                    max_p=15, max_q=15,
+                    seasonal=False,
+                    stepwise=True,
+                    suppress_warnings=True
+                )
+                result = model.predict(n_periods=prediction_length)
+        else:
+            model = ARIMA(
+                dataframe["feature"].values,
+                order=(
+                    self._simulation_settings["predictor"]["hyperparameters"]["p_value"],
+                    self._simulation_settings["predictor"]["hyperparameters"]["d_value"],
+                    self._simulation_settings["predictor"]["hyperparameters"]["q_value"],
+                )
+            )
+            fitted = model.fit()
+            result = fitted.forecast(
+                prediction_length
+            )
+
+        return result.tolist()
 
 class LinearRegressionModel(PredictorModel):
     def __init__(self, simulation_settings):
@@ -108,6 +142,7 @@ def do_pred():
                 paired_data_lists[list_name].append((timestamp, value))
     else:
         print("Not enough data")
+        sys.exit(1)
 
     # Hibametrikák számítása minden VM-re
     for list_name in paired_data_lists.keys():
@@ -115,6 +150,18 @@ def do_pred():
 
     simulation_settings = {}
     linear_regression_model = LinearRegressionModel(simulation_settings)
+
+    simulation_settings_arima = {
+        "predictor": {
+            "hyperparameters": {
+                "p_value": 7,
+                "d_value": 0,
+                "q_value": 3,
+                "auto_optimize": False
+            }
+        }
+    }
+    arima_model = ArimaModel(simulation_settings_arima)
 
     feature_names = "feature"
     prediction_length = pred_length
@@ -134,6 +181,11 @@ def do_pred():
                                                                       df,
                                                                       prediction_length,
                                                                       is_test_data)
+        predictions_arima = arima_model.predict(feature_names, df, prediction_length, is_test_data)
+        # print(prediction_length)
+        # print("ARIMA:")
+        # print(len(predictions_arima))
+        # print(predictions_arima)
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
