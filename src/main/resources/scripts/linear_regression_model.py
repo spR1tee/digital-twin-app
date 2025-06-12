@@ -121,12 +121,15 @@ def error_metrics(data):
 def do_pred():
     rows, based_on, pred_length, vm_count = db_connect()
     paired_data_lists = {}
-    predictions_list = {}
+    linear_regression_predictions_list = {}
+    arima_predictions_list = {}
+
 
     # Inicializálás külön VM-ekre
     for i in range(vm_count):
         paired_data_lists[f"paired_data{i if i > 0 else ''}"] = []
-        predictions_list[f"prediction{i if i > 0 else ''}"] = []
+        linear_regression_predictions_list[f"prediction{i if i > 0 else ''}"] = []
+        arima_predictions_list[f"prediction{i if i > 0 else ''}"] = []
 
     print(len(rows))
     rows.reverse()  # Időrendbe helyezés
@@ -177,11 +180,14 @@ def do_pred():
         df["timestamp"] = (df["timestamp"] - start_time).dt.total_seconds()
 
         pred_name = f"prediction{i if i > 0 else ''}"
-        predictions_list[pred_name] = linear_regression_model.predict(feature_names,
+        linear_regression_predictions_list[pred_name] = linear_regression_model.predict(feature_names,
                                                                       df,
                                                                       prediction_length,
                                                                       is_test_data)
-        predictions_arima = arima_model.predict(feature_names, df, prediction_length, is_test_data)
+        tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
+        compressed = compression(tmp)
+
+        arima_predictions_list[pred_name] = compressed
         # print(prediction_length)
         # print("ARIMA:")
         # print(len(predictions_arima))
@@ -189,18 +195,28 @@ def do_pred():
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
-        data_list = predictions_list[list_name]
+        data_list = linear_regression_predictions_list[list_name]
+        arima_list = arima_predictions_list[list_name]
         print(len(data_list))
-        print(f"Predictions for vm{i}:\n{data_list}")
+        print(f"Linear Regression predictions for vm{i}:\n{data_list}")
+        print(len(arima_list))
+        print(f"Arima predictions for vm{i}:\n{arima_list}")
 
     print("JSON_DATA_START")
     result_data = {}
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
-        data_list = predictions_list[list_name]
+        data_list = linear_regression_predictions_list[list_name]
+        arima_list = arima_predictions_list[list_name]
         result_data[f"VM{i}"] = data_list
     print(json.dumps(result_data))
     print("JSON_DATA_END")
+
+def compression(list, batch_size=5):
+    return [
+        sum(list[i:i + batch_size]) / len(list[i:i + batch_size])
+        for i in range(0, len(list), batch_size)
+    ]
 
 
 if __name__ == '__main__':
