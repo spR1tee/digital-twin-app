@@ -28,7 +28,7 @@ To enable fog simulation and energy/resource calculations, the **[DISSECT-CF-Fog
 
 2. Build the project to generate the JAR file:
    ```bash
-   mvn clean install
+   mvn clean package
    ```
 
 3. Install the JAR to your local Maven repository:
