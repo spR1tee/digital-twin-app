@@ -1,4 +1,4 @@
-# Digital Twin and IoT-Cloud-Fog Simulator
+# Digital Twin and IoT-Fog-Cloud Simulator
 
 This project demonstrates the integration of Digital Twin technology with IoT-Cloud-Fog computing concepts. The system consists of two Maven-based Java Spring Boot applications:
 
