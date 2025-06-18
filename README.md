@@ -20,16 +20,31 @@ The default sending schedule is set to 5 seconds, but this can be changed just a
 
 ## Requirements for Digital Twin App
 
-To enable fog simulation and energy/resource calculations, the **[DISSECT-CF-Fog](https://github.com/sed-inf-u-szeged/DISSECT-CF-Fog)** simulator JAR file must be added to the Digital Twin App project structure.
+To enable fog simulation and energy/resource calculations, the **[DISSECT-CF-Fog](https://github.com/sed-inf-u-szeged/DISSECT-CF-Fog)** simulator must be added as a Maven dependency to the Digital Twin App project.
 
 ### Steps:
 
 1. Clone or download the DISSECT-CF-Fog repository from [here](https://github.com/sed-inf-u-szeged/DISSECT-CF-Fog)
-2. Build the project to generate the JAR file (typically located in the `target/` directory)
-3. Add the generated JAR to your Digital Twin App:
 
-   * In IntelliJ:
-     `File > Project Structure > Modules > Dependencies > + > JARs or directories > select the JAR file`
-4. Apply the changes and rebuild the project
+2. Build the project to generate the JAR file:
+   ```bash
+   mvn clean install
+   ```
 
-This enables the Digital Twin App to simulate fog computing scenarios using the DISSECT-CF-Fog engine.
+3. Install the JAR to your local Maven repository:
+   ```bash
+   mvn install:install-file -Dfile=path/to/dissect-cf-fog-1.0.jar -DgroupId=hu.u-szeged.inf.fog -DartifactId=dissect-cf-fog -Dversion=1.0 -Dpackaging=jar
+   ```
+
+4. Add the dependency to your Digital Twin App's `pom.xml`:
+   ```xml
+   <dependency>
+       <groupId>hu.u-szeged.inf.fog</groupId>
+       <artifactId>dissect-cf-fog</artifactId>
+       <version>1.0</version>
+   </dependency>
+   ```
+
+5. Refresh Maven dependencies and rebuild the project
+
+This enables the Digital Twin App to simulate fog computing scenarios using the DISSECT-CF-Fog engine through Maven dependency management.
