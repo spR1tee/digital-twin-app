@@ -75,6 +75,11 @@
             <version>RELEASE</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>hu.dissect</groupId>
+            <artifactId>dissect-cf-fog-updated</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
     </dependencies>
 

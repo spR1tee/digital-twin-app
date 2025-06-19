@@ -59,6 +59,7 @@ class LinearRegressionModel(PredictorModel):
         return result.tolist()
 
 
+
 def db_connect():
     # Bemeneti paraméterek: feature, history length, predikciós hossz, VM szám, tenant azonosító
     feature = sys.argv[1]
@@ -87,7 +88,6 @@ def db_connect():
     conn.close()
 
     return rows, based_on, pred_length, vm_count
-
 
 def error_metrics(data):
     index = int(len(data) * 3 / 4)  # 75%-os tanító és 25%-os teszt szétválasztá
@@ -131,9 +131,7 @@ def do_pred():
         linear_regression_predictions_list[f"prediction{i if i > 0 else ''}"] = []
         arima_predictions_list[f"prediction{i if i > 0 else ''}"] = []
 
-    print(len(rows))
     rows.reverse()  # Időrendbe helyezés
-    print(rows)
 
     # Adatok felosztása VM-ek szerint
     if len(rows) >= based_on * vm_count:
@@ -157,9 +155,9 @@ def do_pred():
     simulation_settings_arima = {
         "predictor": {
             "hyperparameters": {
-                "p_value": 7,
+                "p_value": 4,
                 "d_value": 0,
-                "q_value": 3,
+                "q_value": 1,
                 "auto_optimize": False
             }
         }
@@ -186,20 +184,13 @@ def do_pred():
                                                                       is_test_data)
         tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
         compressed = compression(tmp)
-
         arima_predictions_list[pred_name] = compressed
-        # print(prediction_length)
-        # print("ARIMA:")
-        # print(len(predictions_arima))
-        # print(predictions_arima)
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
         arima_list = arima_predictions_list[list_name]
-        print(len(data_list))
         print(f"Linear Regression predictions for vm{i}:\n{data_list}")
-        print(len(arima_list))
         print(f"Arima predictions for vm{i}:\n{arima_list}")
 
     print("JSON_DATA_START")

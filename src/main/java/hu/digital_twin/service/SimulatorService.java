@@ -42,7 +42,8 @@ public class SimulatorService {
             case "REQUEST FUTURE BEHAVIOUR":
                 // A baseline és az előrejelzett adatok elküldése a kliensnek
                 sendData(simulation.doBaseline(requestData), "http://localhost:8082/dummy/receiveData");
-                sendData(simulation.usePrediction(requestData), "http://localhost:8082/dummy/receiveData");
+                sendData(simulation.usePredictionWithoutScaling(requestData), "http://localhost:8082/dummy/receiveData");
+                sendData(simulation.usePredictionWithScaling(requestData), "http://localhost:8082/dummy/receiveData");
                 break;
             default:
                 System.err.println("Error: Unknown Request Type");

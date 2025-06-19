@@ -24,17 +24,17 @@ public class RequestData {
     private String featureName;
 
     @Transient
-    private int simLength;
+    private double threshold;
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "request_data_id")
     private List<VmData> vmData;
 
-    public int getSimLength() {
-        return simLength;
+    public double getThreshold() {
+        return threshold;
     }
 
-    public void setSimLength(int simLength) {
-        this.simLength = simLength;
+    public void setThreshold(double threshold) {
+        this.threshold = threshold;
     }
 
     public String getFeatureName() {

@@ -34,6 +34,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Cloud infrastruktúra szimulációs osztály.
@@ -254,6 +255,138 @@ public class Simulation {
         EnergyDataCollector.energyCollectors.clear();
     }
 
+    public String usePredictionWithoutScaling(RequestData currentRequestData) {
+        // Globális teljesítménymutatók nullázása
+        totalEnergyConsumption = 0.0;
+        totalMovedData = 0;
+        totalTasks = 0;
+        int numberOfVms = 0;
+        int filesize = 0;
+
+        try {
+            // Legutolsó adatbázisba betöltött adatok lekérése a VM konfigurációkhoz
+            RequestData lastUpdateData = requestDataService.getLastData();
+
+            // IaaS környezet inicializálása adott számú fizikai géppel
+            IaaSContext context = initializeIaaS(2);
+
+            // Maximális utasítás/másodperc tárolása VM-enként
+            Map<String, Long> maxInstrPerSecond = new HashMap<>();
+
+            // VM-ek létrehozása a legutóbbi adatok alapján
+            for (VmData vd : lastUpdateData.getVmData()) {
+                // Template létrehozása
+                VirtualAppliance va = new VirtualAppliance(vd.getName(), vd.getStartupProcess(), vd.getNetworkTraffic(), false, vd.getReqDisk());
+
+                // Erőforrás-korlátozások beállítása
+                AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
+
+                // VM regisztrálása és indítása az IaaS-ban
+                context.iaas.repositories.get(0).registerObject(va);
+                context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1);
+
+                // Maximális utasítás/másodperc kiszámítása és tárolása
+                long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
+                maxInstrPerSecond.put(vd.getName(), maxInstr);
+            }
+
+            // Predikciós adatok lekérése az aktuális kérés alapján
+            Map<String, List<Double>> predictionData = prediction(currentRequestData);
+
+            //Percenkénti adatok tárolása
+            Map<String, List<Double>> avgLoadsPerMinute = new HashMap<>();
+            Map<String, List<Long>> taskInstructionsPerMinute = new HashMap<>();
+
+            // Predikciós adatok feldolgozása percenkénti ablakokban
+            for (Map.Entry<String, List<Double>> entry : predictionData.entrySet()) {
+                String vmId = entry.getKey();
+                List<Double> loadValues = entry.getValue();
+
+                List<Double> avgLoads = new ArrayList<>();
+                List<Long> instructions = new ArrayList<>();
+
+                // Adatok csoportosítása percenkénti ablakokba
+                for (int i = 0; i < loadValues.size(); i += READINGS_PER_MINUTE) {
+                    int endIdx = Math.min(i + READINGS_PER_MINUTE, loadValues.size());
+                    List<Double> window = loadValues.subList(i, endIdx);
+
+                    // Átlagos terhelés kiszámítása az ablakra
+                    double avg = window.stream().mapToDouble(d -> d).average().orElse(0.0);
+
+                    // Utasítások számának kiszámítása a terhelés alapján
+                    long instr = Math.round(SECONDS_PER_MINUTE * (avg / 100.0) * maxInstrPerSecond.get(vmId));
+
+                    avgLoads.add(avg);
+                    instructions.add(instr);
+                }
+
+                // Feldolgozott adatok tárolása
+                avgLoadsPerMinute.put(vmId, avgLoads);
+                taskInstructionsPerMinute.put(vmId, instructions);
+            }
+
+            // Szimuláció inicializálása, VM-ek elindítása
+            Timed.simulateUntilLastEvent();
+
+            // Kezdési időpont rögzítése
+            long starttime = Timed.getFireCount();
+
+            // Energia adatgyűjtő beállítása
+            setupEDC(context);
+
+            for (PhysicalMachine pm : new ArrayList<>(context.iaas.machines)) {
+                for (VirtualMachine vm : new ArrayList<>(pm.listVMs())) {
+                    numberOfVms++;
+
+                    // VM azonosító alapján megfelelő terhelési adatok keresése
+                    for (Map.Entry<String, List<Double>> entry : avgLoadsPerMinute.entrySet()) {
+                        String vmId = entry.getKey();
+
+                        // Ha ez a VM megfelel az aktuális adatsornak
+                        if (vm.getVa().id.equals(vmId)) {
+
+                            // Az aktuális VM adatainak lekérése a mapből
+                            List<Double> loads = avgLoadsPerMinute.get(vmId);
+                            List<Long> tasks = taskInstructionsPerMinute.get(vmId);
+                            for (int i = 0; i < loads.size(); i++) {
+                                double load = loads.get(i);
+                                if (load >= 1) {
+                                    load = 1;
+                                } else if (load <= 0) {
+                                    load = 0;
+                                }
+                                vm.newComputeTask(tasks.get(i), 1 - load, new DataTransferOnConsumption(context, vm, 600));
+                                totalTasks += tasks.get(i);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Szimuláció befejezése a teljes predikciós időszakra
+            Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * currentRequestData.getPredictionLength()));
+
+            // Energia adatgyűjtő leállítása
+            stopEDC();
+
+            // Futásidő statisztikák számítása
+            long stoptime = Timed.getFireCount();
+            long runtime = stoptime - starttime;
+
+            // Teljesítmény statisztikák generálása
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null, totalTasks);
+            System.out.println("TotalTasks done: " + totalTasks);
+            EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
+
+            // Szimulátor állapot visszaállítása
+            Timed.resetTimed();
+
+            return stats;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Predikciós adatok alapján cloud infrastruktúra szimulációt végez.
      * A metódus dinamikus terheléselosztást és backup VM-ek létrehozását kezeli.
@@ -261,25 +394,26 @@ public class Simulation {
      * @param currentRequestData Az aktuális kérési adatok predikciós paraméterekkel
      * @return Szimuláció statisztikáit tartalmazó szöveges összefoglaló
      */
-    public String usePrediction(RequestData currentRequestData) {
+    public String usePredictionWithScaling(RequestData currentRequestData) {
         // Backup virtuális gépek tárolása
-        Map<String, VirtualMachine> backUpVms = new HashMap<>();
+        Map<String, VirtualMachine> backUpVms = new ConcurrentHashMap<>();
 
-        // Terhelési küszöbérték (80%) - ezen felül backup VM-et hozunk létre
-        double loadThreshold = 0.8;
+        // Terhelési küszöbérték - ezen felül backup VM-et hozunk létre
+        double loadThreshold = currentRequestData.getThreshold();
 
         // Globális teljesítménymutatók nullázása
         totalEnergyConsumption = 0.0;
         totalMovedData = 0;
         totalTasks = 0;
         int numberOfVms = 0;
+        int filesize = 0;
 
         try {
-            // IaaS környezet inicializálása adott számú fizikai géppel
-            IaaSContext context = initializeIaaS(2);
-
             // Legutolsó adatbázisba betöltött adatok lekérése a VM konfigurációkhoz
             RequestData lastUpdateData = requestDataService.getLastData();
+
+            // IaaS környezet inicializálása adott számú fizikai géppel
+            IaaSContext context = initializeIaaS(2);
 
             // Maximális utasítás/másodperc tárolása VM-enként
             Map<String, Long> maxInstrPerSecond = new HashMap<>();
@@ -348,8 +482,10 @@ public class Simulation {
             // Backup VM-ek létrehozási idejének követése
             int lastBackupCreationMinute = 0;
 
-            for (PhysicalMachine pm : context.iaas.machines) {
-                for (VirtualMachine vm : pm.listVMs()) {
+            List<PhysicalMachine> pms = context.iaas.machines;
+
+            for (PhysicalMachine pm : pms) {
+                for (VirtualMachine vm : new ArrayList<>(pm.listVMs())) {
                     numberOfVms++;
 
                     // VM azonosító alapján megfelelő terhelési adatok keresése
@@ -363,17 +499,18 @@ public class Simulation {
                             List<Double> loads = avgLoadsPerMinute.get(vmId);
                             List<Long> tasks = taskInstructionsPerMinute.get(vmId);
                             for (int i = 0; i < loads.size(); i++) {
-                                totalTasks += tasks.get(i);
 
                                 // Magas terhelés esetén (>= 80%) backup VM használata
-                                if (loads.get(i) >= loadThreshold) {
+                                if (loads.get(i) >= 0.8) {
 
                                     // Ha már létezik backup VM ehhez a VM-hez
                                     if (backUpVms.containsKey(vmId)) {
 
                                         // Feladat szétosztása az eredeti és backup VM között (50-50%)
                                         vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                        totalTasks += (int) (tasks.get(i) / 2);
                                         backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                        totalTasks += (int) (tasks.get(i) / 2);
                                     } else {
                                         // Új backup VM létrehozása
                                         for (VmData vd : lastUpdateData.getVmData()) {
@@ -385,9 +522,11 @@ public class Simulation {
                                                 AlterableResourceConstraints arc = new AlterableResourceConstraints(vd.getCpu(), vd.getCoreProcessingPower(), vd.getRam());
 
                                                 // Backup VM regisztrálása és indítása
-                                                context.iaas.repositories.get(0).registerObject(va);
-                                                VirtualMachine backUp = context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1)[0];
-                                                backUpVms.put(vmId, backUp);
+                                                synchronized(context.iaas.repositories.get(0)) {
+                                                    context.iaas.repositories.get(0).registerObject(va);
+                                                    VirtualMachine backUp = context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1)[0];
+                                                    backUpVms.put(vmId, backUp);
+                                                }
                                                 numberOfVms++;
 
                                                 //Backup VM indításának időpontjának rögzítése
@@ -398,13 +537,16 @@ public class Simulation {
 
                                                 // Feladatok szétosztása az eredeti és backup VM között
                                                 vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                                totalTasks += (int) (tasks.get(i) / 2);
                                                 backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                                totalTasks += (int) (tasks.get(i) / 2);
                                             }
                                         }
                                     }
                                 } else {
                                     // Normál terhelés esetén (<80%) csak az eredeti VM használata
                                     vm.newComputeTask(tasks.get(i), 1 - loads.get(i), new DataTransferOnConsumption(context, vm, 600));
+                                    totalTasks += (tasks.get(i));
                                 }
                             }
                         }
@@ -423,12 +565,16 @@ public class Simulation {
             long runtime = stoptime - starttime;
 
             // Teljesítmény statisztikák generálása
-            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, backUpVms);
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, backUpVms, totalTasks);
             System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
 
             // Szimulátor állapot visszaállítása
             Timed.resetTimed();
+
+            if (!backUpVms.isEmpty()) {
+                backUpVms.clear();
+            }
 
             return stats;
         } catch (Exception e) {
@@ -452,7 +598,7 @@ public class Simulation {
 
         try {
             // IaaS környezet inicializálása adott számú fizikai géppel
-            IaaSContext context = initializeIaaS(2);
+            IaaSContext context = initializeIaaS(1);
 
             // Legutóbbi VM konfigurációs adatok lekérése
             RequestData lastUpdateData = requestDataService.getLastData();
@@ -504,7 +650,7 @@ public class Simulation {
             // Futásidő statisztikák számítása
             long stoptime = Timed.getFireCount();
             long runtime = stoptime - starttime;
-            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null);
+            String stats = generateRuntimeStats(runtime, lastUpdateData, totalEnergyConsumption, totalMovedData, numberOfVms, null, totalTasks);
             System.out.println("TotalTasks done: " + totalTasks);
             EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
 
@@ -535,7 +681,7 @@ public class Simulation {
      * @param backUpVms Backup VM-ek térképe (lehet null baseline esetén)
      * @return JSON formátumú statisztikai összefoglaló
      */
-    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms, Map<String, VirtualMachine> backUpVms) {
+    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms, Map<String, VirtualMachine> backUpVms, int totalTasks) {
         double hours = runtime / 3600000.0;
         double minutes = runtime / 60000.0;
 
@@ -554,6 +700,7 @@ public class Simulation {
             statsMap.put("total_iot_cost_usd", iotCost);
             statsMap.put("total_energy_consumption_kwh", totalEnergyConsumption);
             statsMap.put("total_moved_data_mb", totalMovedData);
+            statsMap.put("total_vm_tasks_simulated", totalTasks);
             statsMap.put("number_of_vms_utilized", vms);
 
             return objectMapper.writeValueAsString(statsMap);
