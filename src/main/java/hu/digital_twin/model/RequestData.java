@@ -17,7 +17,7 @@ public class RequestData {
     private int vmsCount;
     private String timestamp;
     @Transient
-    private int basedOnLast;
+    private int basedOnLast; // in minutes
     @Transient
     private int predictionLength; // in minutes
     @Transient

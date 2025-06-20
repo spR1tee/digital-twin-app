@@ -268,7 +268,7 @@ public class Simulation {
             RequestData lastUpdateData = requestDataService.getLastData();
 
             // IaaS környezet inicializálása adott számú fizikai géppel
-            IaaSContext context = initializeIaaS(2);
+            IaaSContext context = initializeIaaS(1);
 
             // Maximális utasítás/másodperc tárolása VM-enként
             Map<String, Long> maxInstrPerSecond = new HashMap<>();
@@ -500,16 +500,16 @@ public class Simulation {
                             List<Long> tasks = taskInstructionsPerMinute.get(vmId);
                             for (int i = 0; i < loads.size(); i++) {
 
-                                // Magas terhelés esetén (>= 80%) backup VM használata
+                                // Magas terhelés esetén (pl. >= 80%) backup VM használata
                                 if (loads.get(i) >= 0.8) {
 
                                     // Ha már létezik backup VM ehhez a VM-hez
                                     if (backUpVms.containsKey(vmId)) {
 
                                         // Feladat szétosztása az eredeti és backup VM között (50-50%)
-                                        vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                        vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, filesize));
                                         totalTasks += (int) (tasks.get(i) / 2);
-                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), filesize));
                                         totalTasks += (int) (tasks.get(i) / 2);
                                     } else {
                                         // Új backup VM létrehozása
@@ -631,10 +631,14 @@ public class Simulation {
                             // Konstans terhelés alkalmazása a teljes szimuláció időtartamára
                             for (int i = 0; i < currentRequestData.getPredictionLength(); i++) {
                                 // Utasítások számának kiszámítása a jelenlegi használat alapján
-                                long instr = Math.round(SECONDS_PER_MINUTE * (vd.getUsage() / 100.0) * maxInstrPerSecond.get(vd.getName()));
+                                long instr = Math.round(SECONDS_PER_MINUTE *
+                                            (vd.getUsage() / 100.0) *
+                                            maxInstrPerSecond.get(vd.getName()));
                                 totalTasks += (int) instr;
                                 // Megfelelő számú task hozzáadása a VM-hez
-                                vm.newComputeTask(instr, 1 - vd.getUsage(), new DataTransferOnConsumption(context, vm, 600));
+                                vm.newComputeTask(instr,
+                                        1 - vd.getUsage(),
+                                        new DataTransferOnConsumption(context, vm, vd.getDataSinceLastSave()));
                             }
                         }
                     }
@@ -681,7 +685,11 @@ public class Simulation {
      * @param backUpVms Backup VM-ek térképe (lehet null baseline esetén)
      * @return JSON formátumú statisztikai összefoglaló
      */
-    public String generateRuntimeStats(long runtime, RequestData lastUpdateData, double totalEnergyConsumption, int totalMovedData, int vms, Map<String, VirtualMachine> backUpVms, int totalTasks) {
+    public String generateRuntimeStats(long runtime, RequestData lastUpdateData,
+                                       double totalEnergyConsumption,
+                                       int totalMovedData,
+                                       int vms, Map<String, VirtualMachine> backUpVms,
+                                       int totalTasks) {
         double hours = runtime / 3600000.0;
         double minutes = runtime / 60000.0;
 
@@ -762,7 +770,7 @@ public class Simulation {
      */
     public Map<String, List<Double>> prediction(RequestData requestData) {
         try {
-            String scriptPath = "src/main/resources/scripts/linear_regression_model.py";
+            String scriptPath = "src/main/resources/scripts/prediction.py";
             // Python folyamat konfigurálása paraméterekkel
             ProcessBuilder processBuilder = new ProcessBuilder("python", scriptPath, requestData.getFeatureName(), Integer.toString(requestData.getBasedOnLast() * 12), Integer.toString(requestData.getPredictionLength() * 60), Integer.toString(requestData.getVmsCount()), TenantContext.getTenantId());
             processBuilder.redirectErrorStream(true);

@@ -182,23 +182,23 @@ def do_pred():
                                                                       df,
                                                                       prediction_length,
                                                                       is_test_data)
-        tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
-        compressed = compression(tmp)
-        arima_predictions_list[pred_name] = compressed
+        # tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
+        # compressed = compression(tmp)
+        # arima_predictions_list[pred_name] = compressed
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
-        arima_list = arima_predictions_list[list_name]
+        # arima_list = arima_predictions_list[list_name]
         print(f"Linear Regression predictions for vm{i}:\n{data_list}")
-        print(f"Arima predictions for vm{i}:\n{arima_list}")
+        # print(f"Arima predictions for vm{i}:\n{arima_list}")
 
     print("JSON_DATA_START")
     result_data = {}
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
-        arima_list = arima_predictions_list[list_name]
+        # arima_list = arima_predictions_list[list_name]
         result_data[f"VM{i}"] = data_list
     print(json.dumps(result_data))
     print("JSON_DATA_END")
