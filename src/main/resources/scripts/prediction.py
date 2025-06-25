@@ -11,6 +11,10 @@ from sklearn.linear_model import LinearRegression
 from predictor_model import PredictorModel
 from statsmodels.tsa.arima.model import ARIMA
 from pmdarima import auto_arima
+from prophet import Prophet
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 
 
 class ArimaModel(PredictorModel):
@@ -123,6 +127,7 @@ def do_pred():
     paired_data_lists = {}
     linear_regression_predictions_list = {}
     arima_predictions_list = {}
+    random_forest_pred_list = {}
 
 
     # Inicializálás külön VM-ekre
@@ -130,6 +135,7 @@ def do_pred():
         paired_data_lists[f"paired_data{i if i > 0 else ''}"] = []
         linear_regression_predictions_list[f"prediction{i if i > 0 else ''}"] = []
         arima_predictions_list[f"prediction{i if i > 0 else ''}"] = []
+        random_forest_pred_list[f"prediction{i if i > 0 else ''}"] = []
 
     rows.reverse()  # Időrendbe helyezés
 
@@ -152,6 +158,10 @@ def do_pred():
     simulation_settings = {}
     linear_regression_model = LinearRegressionModel(simulation_settings)
 
+    feature_names = "feature"
+    prediction_length = pred_length
+    is_test_data = False
+
     simulation_settings_arima = {
         "predictor": {
             "hyperparameters": {
@@ -162,21 +172,17 @@ def do_pred():
             }
         }
     }
-    arima_model = ArimaModel(simulation_settings_arima)
-
-    feature_names = "feature"
-    prediction_length = pred_length
-    is_test_data = False
+    # arima_model = ArimaModel(simulation_settings_arima)
 
     # Predikciók VM-enként
     for i in range(vm_count):
         list_name = f"paired_data{i if i > 0 else ''}"
         data_list = paired_data_lists[list_name]
         df = pd.DataFrame(data_list, columns=["timestamp", "feature"])
+        values_list = df["feature"].tolist()
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         start_time = df["timestamp"].min()
         df["timestamp"] = (df["timestamp"] - start_time).dt.total_seconds()
-
         pred_name = f"prediction{i if i > 0 else ''}"
         linear_regression_predictions_list[pred_name] = linear_regression_model.predict(feature_names,
                                                                       df,
@@ -185,22 +191,26 @@ def do_pred():
         # tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
         # compressed = compression(tmp)
         # arima_predictions_list[pred_name] = compressed
+        random_forest_pred_list[pred_name] = random_forest(values_list, pred_name, prediction_length)
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
-        # arima_list = arima_predictions_list[list_name]
+        random_forest_list = random_forest_pred_list[list_name]
         print(f"Linear Regression predictions for vm{i}:\n{data_list}")
-        # print(f"Arima predictions for vm{i}:\n{arima_list}")
+        print(f"Random Forest predictions for vm{i}:\n{random_forest_list}")
 
     print("JSON_DATA_START")
-    result_data = {}
+    result_data_lr = {}
+    result_data_arima = {}
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
+        rf_list = random_forest_pred_list[list_name]
         # arima_list = arima_predictions_list[list_name]
-        result_data[f"VM{i}"] = data_list
-    print(json.dumps(result_data))
+        result_data_lr[f"VM{i}"] = data_list
+        result_data_rf[f"VM{i}"] = rf_list
+    print(json.dumps(result_data_lr))
     print("JSON_DATA_END")
 
 def compression(list, batch_size=5):
@@ -209,6 +219,45 @@ def compression(list, batch_size=5):
         for i in range(0, len(list), batch_size)
     ]
 
+def random_forest(data, pred_name, prediction_length):
+    from sklearn.ensemble import RandomForestRegressor
+
+    n_lag = int(len(data) / 2)
+    pred_horizon = int(prediction_length / 5)
+
+    df = pd.DataFrame({'y': data})
+    for i in range(1, n_lag + 1):
+        df[f'lag_{i}'] = df['y'].shift(i)
+    df.dropna(inplace=True)
+
+    X = df[[f'lag_{i}' for i in range(1, n_lag + 1)]]
+    y = df['y']
+
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+    model.fit(X, y)
+
+    last_known = data[-n_lag:]
+    preds = []
+
+    for _ in range(pred_horizon):
+        x_input = np.array(last_known[-n_lag:]).reshape(1, -1)
+        y_pred = model.predict(x_input)[0]
+        preds.append(y_pred)
+        last_known.append(y_pred)
+
+    plt.figure(figsize=(14, 6))
+    plt.plot(range(len(data)), data, label="Original usage", color="blue")
+    plt.plot(range(len(data), len(data) + pred_horizon), preds, label="Predicted usage", color="orange")
+    plt.title("VM usage prediction")
+    plt.xlabel("Time")
+    plt.ylabel("Usage")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f"{pred_name}_prediction_plot.png")
+
+    return preds
 
 if __name__ == '__main__':
     do_pred()
+

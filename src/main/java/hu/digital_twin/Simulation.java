@@ -120,7 +120,7 @@ public class Simulation {
                 // Fizikai gép létrehozása a repository-val
                 PhysicalMachine pm = new PhysicalMachine(
                         8, 1, 17_179_869_184L,
-                        repo, 0, 10_000,
+                        repo, 0, 0,
                         transitions.get(PowerTransitionGenerator.PowerStateKind.host)
                 );
 
@@ -292,6 +292,16 @@ public class Simulation {
 
             // Predikciós adatok lekérése az aktuális kérés alapján
             Map<String, List<Double>> predictionData = prediction(currentRequestData);
+            /*System.out.println("Pred data:");
+            for (Map.Entry<String, List<Double>> entry : predictionData.entrySet()) {
+                String key = entry.getKey();
+                List<Double> values = entry.getValue();
+
+                System.out.println("Kulcs: " + key);
+                for (Double value : values) {
+                    System.out.println("  Érték: " + value);
+                }
+            }*/
 
             //Percenkénti adatok tárolása
             Map<String, List<Double>> avgLoadsPerMinute = new HashMap<>();
@@ -505,7 +515,7 @@ public class Simulation {
 
                                     // Ha már létezik backup VM ehhez a VM-hez
                                     if (backUpVms.containsKey(vmId)) {
-
+                                        filesize = 600;
                                         // Feladat szétosztása az eredeti és backup VM között (50-50%)
                                         vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, filesize));
                                         totalTasks += (int) (tasks.get(i) / 2);
@@ -603,6 +613,7 @@ public class Simulation {
             // Legutóbbi VM konfigurációs adatok lekérése
             RequestData lastUpdateData = requestDataService.getLastData();
 
+
             // Maximális utasítás/másodperc értékek tárolása VM-enként
             Map<String, Long> maxInstrPerSecond = new HashMap<>();
 
@@ -638,7 +649,7 @@ public class Simulation {
                                 // Megfelelő számú task hozzáadása a VM-hez
                                 vm.newComputeTask(instr,
                                         1 - vd.getUsage(),
-                                        new DataTransferOnConsumption(context, vm, vd.getDataSinceLastSave()));
+                                        new DataTransferOnConsumption(context, vm, 600));
                             }
                         }
                     }
