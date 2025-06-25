@@ -191,14 +191,14 @@ def do_pred():
         # tmp = arima_model.predict(feature_names, df, prediction_length, is_test_data)
         # compressed = compression(tmp)
         # arima_predictions_list[pred_name] = compressed
-        random_forest_pred_list[pred_name] = random_forest(values_list, pred_name, prediction_length)
+        # random_forest_pred_list[pred_name] = random_forest(values_list, pred_name, prediction_length)
 
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
-        random_forest_list = random_forest_pred_list[list_name]
+        # random_forest_list = random_forest_pred_list[list_name]
         print(f"Linear Regression predictions for vm{i}:\n{data_list}")
-        print(f"Random Forest predictions for vm{i}:\n{random_forest_list}")
+        # print(f"Random Forest predictions for vm{i}:\n{random_forest_list}")
 
     print("JSON_DATA_START")
     result_data_lr = {}
@@ -206,10 +206,10 @@ def do_pred():
     for i in range(vm_count):
         list_name = f"prediction{i if i > 0 else ''}"
         data_list = linear_regression_predictions_list[list_name]
-        rf_list = random_forest_pred_list[list_name]
+        # rf_list = random_forest_pred_list[list_name]
         # arima_list = arima_predictions_list[list_name]
         result_data_lr[f"VM{i}"] = data_list
-        result_data_rf[f"VM{i}"] = rf_list
+        # result_data_rf[f"VM{i}"] = rf_list
     print(json.dumps(result_data_lr))
     print("JSON_DATA_END")
 

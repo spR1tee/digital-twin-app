@@ -261,7 +261,7 @@ public class Simulation {
         totalMovedData = 0;
         totalTasks = 0;
         int numberOfVms = 0;
-        int filesize = 0;
+        Map<String, Integer> filesize = new HashMap<>();
 
         try {
             // Legutolsó adatbázisba betöltött adatok lekérése a VM konfigurációkhoz
@@ -288,20 +288,11 @@ public class Simulation {
                 // Maximális utasítás/másodperc kiszámítása és tárolása
                 long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
                 maxInstrPerSecond.put(vd.getName(), maxInstr);
+                filesize.put(vd.getName(), vd.getDataSinceLastSave());
             }
 
             // Predikciós adatok lekérése az aktuális kérés alapján
             Map<String, List<Double>> predictionData = prediction(currentRequestData);
-            /*System.out.println("Pred data:");
-            for (Map.Entry<String, List<Double>> entry : predictionData.entrySet()) {
-                String key = entry.getKey();
-                List<Double> values = entry.getValue();
-
-                System.out.println("Kulcs: " + key);
-                for (Double value : values) {
-                    System.out.println("  Érték: " + value);
-                }
-            }*/
 
             //Percenkénti adatok tárolása
             Map<String, List<Double>> avgLoadsPerMinute = new HashMap<>();
@@ -347,7 +338,6 @@ public class Simulation {
             for (PhysicalMachine pm : new ArrayList<>(context.iaas.machines)) {
                 for (VirtualMachine vm : new ArrayList<>(pm.listVMs())) {
                     numberOfVms++;
-
                     // VM azonosító alapján megfelelő terhelési adatok keresése
                     for (Map.Entry<String, List<Double>> entry : avgLoadsPerMinute.entrySet()) {
                         String vmId = entry.getKey();
@@ -365,7 +355,7 @@ public class Simulation {
                                 } else if (load <= 0) {
                                     load = 0;
                                 }
-                                vm.newComputeTask(tasks.get(i), 1 - load, new DataTransferOnConsumption(context, vm, 600));
+                                vm.newComputeTask(tasks.get(i), 1 - load, new DataTransferOnConsumption(context, vm, filesize.get(vmId)));
                                 totalTasks += tasks.get(i);
                             }
                         }
@@ -416,7 +406,7 @@ public class Simulation {
         totalMovedData = 0;
         totalTasks = 0;
         int numberOfVms = 0;
-        int filesize = 0;
+        Map<String, Integer> filesize = new HashMap<>();
 
         try {
             // Legutolsó adatbázisba betöltött adatok lekérése a VM konfigurációkhoz
@@ -443,6 +433,7 @@ public class Simulation {
                 // Maximális utasítás/másodperc kiszámítása és tárolása
                 long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
                 maxInstrPerSecond.put(vd.getName(), maxInstr);
+                filesize.put(vd.getName(), vd.getDataSinceLastSave());
             }
 
             // Predikciós adatok lekérése az aktuális kérés alapján
@@ -515,11 +506,10 @@ public class Simulation {
 
                                     // Ha már létezik backup VM ehhez a VM-hez
                                     if (backUpVms.containsKey(vmId)) {
-                                        filesize = 600;
                                         // Feladat szétosztása az eredeti és backup VM között (50-50%)
-                                        vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, filesize));
+                                        vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, filesize.get(vmId)));
                                         totalTasks += (int) (tasks.get(i) / 2);
-                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), filesize));
+                                        backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), filesize.get(vmId)));
                                         totalTasks += (int) (tasks.get(i) / 2);
                                     } else {
                                         // Új backup VM létrehozása
@@ -546,16 +536,16 @@ public class Simulation {
                                                 Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * lastBackupCreationMinute));
 
                                                 // Feladatok szétosztása az eredeti és backup VM között
-                                                vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, 600));
+                                                vm.newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, vm, filesize.get(vmId)));
                                                 totalTasks += (int) (tasks.get(i) / 2);
-                                                backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), 600));
+                                                backUpVms.get(vmId).newComputeTask((double) tasks.get(i) / 2, 1 - (loads.get(i) / 2), new DataTransferOnConsumption(context, backUpVms.get(vmId), filesize.get(vmId)));
                                                 totalTasks += (int) (tasks.get(i) / 2);
                                             }
                                         }
                                     }
                                 } else {
                                     // Normál terhelés esetén (<80%) csak az eredeti VM használata
-                                    vm.newComputeTask(tasks.get(i), 1 - loads.get(i), new DataTransferOnConsumption(context, vm, 600));
+                                    vm.newComputeTask(tasks.get(i), 1 - loads.get(i), new DataTransferOnConsumption(context, vm, filesize.get(vmId)));
                                     totalTasks += (tasks.get(i));
                                 }
                             }
@@ -605,6 +595,7 @@ public class Simulation {
         totalMovedData = 0;
         totalTasks = 0;
         int numberOfVms = 0;
+        Map<String, Integer> filesize = new HashMap<>();
 
         try {
             // IaaS környezet inicializálása adott számú fizikai géppel
@@ -625,6 +616,7 @@ public class Simulation {
                 context.iaas.requestVM(va, arc, context.iaas.repositories.get(0), 1);
                 long maxInstr = calculateMaxInstructionsPerSecond(vd.getCpu(), vd.getCoreProcessingPower());
                 maxInstrPerSecond.put(vd.getName(), maxInstr);
+                filesize.put(vd.getName(), vd.getDataSinceLastSave());
             }
 
             // Szimuláció futtatása, VM-ek elindítása
@@ -649,7 +641,7 @@ public class Simulation {
                                 // Megfelelő számú task hozzáadása a VM-hez
                                 vm.newComputeTask(instr,
                                         1 - vd.getUsage(),
-                                        new DataTransferOnConsumption(context, vm, 600));
+                                        new DataTransferOnConsumption(context, vm, filesize.get(vm.getVa().id)));
                             }
                         }
                     }
