@@ -501,8 +501,8 @@ public class Simulation {
                             List<Long> tasks = taskInstructionsPerMinute.get(vmId);
                             for (int i = 0; i < loads.size(); i++) {
 
-                                // Magas terhelés esetén (pl. >= 80%) backup VM használata
-                                if (loads.get(i) >= 0.8) {
+                                // Magas terhelés esetén backup VM használata
+                                if (loads.get(i) >= loadThreshold) {
 
                                     // Ha már létezik backup VM ehhez a VM-hez
                                     if (backUpVms.containsKey(vmId)) {
