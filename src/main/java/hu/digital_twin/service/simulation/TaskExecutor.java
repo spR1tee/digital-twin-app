@@ -43,10 +43,7 @@ public class TaskExecutor {
 
         for (int i = 0; i < predictionLength; i++) {
             int instructions = calculateBaselineInstructions(vmData, context);
-            context.getMetrics().addTasks(instructions);
-
-            vm.newComputeTask(instructions, 1 - vmData.getUsage(),
-                    createDataTransferHandler(context, vm, vmData.getName()));
+            executeTask(vm, 1 - vmData.getUsage(), instructions, context, vmData.getName());
         }
     }
 
