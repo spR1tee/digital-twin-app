@@ -1,4 +1,4 @@
-package hu.digital_twin.service;
+package hu.digital_twin.service.io;
 
 import hu.digital_twin.model.VmData;
 import hu.digital_twin.model.VmDataRepository;

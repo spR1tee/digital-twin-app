@@ -37,7 +37,7 @@ public class DataSourceConfig {
         // Csak akkor hoz létre új DataSource-t, ha még nincs ilyen tenant regisztrálva
         if (!dataSources.containsKey(tenantId)) {
             // SQLite adatbázis elérési útjának összeállítása tenant ID alapján
-            String url = "jdbc:sqlite:src/main/resources/spring_db/" + tenantId + ".db";
+            String url = "jdbc:sqlite:src/main/resources/db/" + tenantId + ".db";
 
             // Létrehoz egy új SQLite DataSource-t
             DriverManagerDataSource ds = new DriverManagerDataSource();

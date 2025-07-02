@@ -1,10 +1,10 @@
-package hu.digital_twin;
+package hu.digital_twin.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import hu.digital_twin.exception.SimulationException;
 import hu.digital_twin.context.TenantContext;
 import hu.digital_twin.model.RequestData;
-import hu.digital_twin.service.SimulatorService;
-import org.springframework.beans.factory.annotation.Autowired;
+import hu.digital_twin.service.io.RequestHandlerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,25 +15,29 @@ import java.io.IOException;
 
 @RestController
 @RequestMapping("/simulator")
-public class SimulatorController {
-    // Automatikusan bekötött szimulációs szolgáltatás
-    @Autowired
-    private SimulatorService simulatorService;
+public class DigitalTwinController {
+
+    private final RequestHandlerService requestHandlerService;
+
+    public DigitalTwinController(RequestHandlerService requestHandlerService) {
+        this.requestHandlerService = requestHandlerService;
+    }
 
     @PostMapping("/request")
     public ResponseEntity<String> request(@RequestBody String jsonContent) {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
             RequestData requestData = objectMapper.readValue(jsonContent, RequestData.class);
-            simulatorService.handleRequest(requestData);
+            requestHandlerService.handleRequest(requestData);
             TenantContext.clear();
             return ResponseEntity.ok("Data has been processed.");
         } catch (IOException e) {
             e.printStackTrace();
             TenantContext.clear();
             return ResponseEntity.status(500).body("Error while processing data.");
-        } catch (Exception e) {
+        } catch (SimulationException e) {
             throw new RuntimeException(e);
         }
     }
 }
+

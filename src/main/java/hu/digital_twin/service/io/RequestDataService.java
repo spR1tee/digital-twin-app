@@ -1,4 +1,4 @@
-package hu.digital_twin.service;
+package hu.digital_twin.service.io;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -29,13 +29,13 @@ public class RequestDataService {
         return requestDataRepository.findById(id).orElse(null);
     }
 
-    public RequestData createRequestData(RequestData requestData) {
+    public void createRequestData(RequestData requestData) {
         dataSourceConfig.createAndRegister(TenantContext.getTenantId());
         LocalDateTime currentDateTime = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         String formattedDateTime = currentDateTime.format(formatter);
         requestData.setTimestamp(formattedDateTime);
-        return requestDataRepository.save(requestData);
+        requestDataRepository.save(requestData);
     }
 
     public void deleteRequestData(Long id) {

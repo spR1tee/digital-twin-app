@@ -74,7 +74,7 @@ def db_connect():
 
     # SQLite adatbázis elérési út
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, "..", "spring_db", f"{tenant_id}.db")
+    db_path = os.path.join(script_dir, "..", "db", f"{tenant_id}.db")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -245,7 +245,7 @@ def random_forest(data, pred_name, prediction_length):
         preds.append(y_pred)
         last_known.append(y_pred)
 
-    plt.figure(figsize=(14, 6))
+    '''plt.figure(figsize=(14, 6))
     plt.plot(range(len(data)), data, label="Original usage", color="blue")
     plt.plot(range(len(data), len(data) + pred_horizon), preds, label="Predicted usage", color="orange")
     plt.title("VM usage prediction")
@@ -254,7 +254,7 @@ def random_forest(data, pred_name, prediction_length):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{pred_name}_prediction_plot.png")
+    plt.savefig(f"{pred_name}_prediction_plot.png")'''
 
     return preds
 

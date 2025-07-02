@@ -22,12 +22,21 @@ public class RequestData {
     private int predictionLength; // in minutes
     @Transient
     private String featureName;
-
     @Transient
     private double threshold;
+    @Transient
+    private String modelType;
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @JoinColumn(name = "request_data_id")
     private List<VmData> vmData;
+
+    public String getModelType() {
+        return modelType;
+    }
+
+    public void setModelType(String modelType) {
+        this.modelType = modelType;
+    }
 
     public double getThreshold() {
         return threshold;

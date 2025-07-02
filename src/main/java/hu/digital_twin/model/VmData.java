@@ -18,7 +18,6 @@ public class VmData {
     private String type;
     private int networkTraffic; // in kb/sec
     private double usage;
-
     private int dataSinceLastSave; // in MBs
 
     public VmData() {}
