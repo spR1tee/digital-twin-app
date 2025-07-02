@@ -14,22 +14,31 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 
 @RestController
-@RequestMapping("/simulator")
+@RequestMapping("/simulator") // Az összes endpoint ezen az útvonalon belül lesz
 public class DigitalTwinController {
 
     private final RequestHandlerService requestHandlerService;
 
+    // Konstruktorban injektáljuk a RequestHandlerService-t
     public DigitalTwinController(RequestHandlerService requestHandlerService) {
         this.requestHandlerService = requestHandlerService;
     }
 
+    // POST metódus a /simulator/request végponton
     @PostMapping("/request")
     public ResponseEntity<String> request(@RequestBody String jsonContent) {
         ObjectMapper objectMapper = new ObjectMapper();
+
         try {
+            // A JSON tartalom deszerializálása RequestData objektummá
             RequestData requestData = objectMapper.readValue(jsonContent, RequestData.class);
+
+            // A beérkezett adat kezelése a service rétegben
             requestHandlerService.handleRequest(requestData);
+
+            // TenantContext törlése, hogy elkerüljük szálkezelési hibákat
             TenantContext.clear();
+
             return ResponseEntity.ok("Data has been processed.");
         } catch (IOException e) {
             e.printStackTrace();
@@ -40,4 +49,3 @@ public class DigitalTwinController {
         }
     }
 }
-

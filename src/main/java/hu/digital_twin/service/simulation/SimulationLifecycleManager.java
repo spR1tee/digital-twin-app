@@ -16,7 +16,8 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Szimuláció életciklusának kezeléséért felelős szolgáltatás
+ * A szimuláció teljes életciklusát vezérlő szolgáltatás.
+ * Felelős az infrastruktúra inicializálásáért, szimuláció elindításáért, futtatásáért, lezárásáért és az eredmények rögzítéséért.
  */
 @Service
 public class SimulationLifecycleManager {
@@ -27,8 +28,8 @@ public class SimulationLifecycleManager {
     private final VirtualMachineFactory vmFactory;
     private final SimulationStatsService simulationStatsService;
 
-    private long starttime = 0;
-    private long stoptime = 0;
+    private long starttime = 0; // szimuláció kezdőidőpontja (szimulációs idő)
+    private long stoptime = 0;  // szimuláció végidőpontja (szimulációs idő)
 
     public SimulationLifecycleManager(RequestDataService requestDataService,
                                       IaaSManagerService iaaSManagerService,
@@ -43,42 +44,56 @@ public class SimulationLifecycleManager {
     }
 
     /**
-     * Inicializálja a szimulációt adott számú fizikai géphez
+     * Szimulációs környezet és virtuális gépek előkészítése.
+     *
+     * @param physicalMachineCount a fizikai gépek száma
+     * @return a szimuláció kontextusa, amely tartalmazza az infrastruktúrát és VM metrikákat
      */
     public SimulationContext initializeSimulation(int physicalMachineCount) throws Exception {
-        RequestData lastUpdateData = requestDataService.getLastData();
-        IaaSContext iaasContext = iaaSManagerService.initializeIaaS(physicalMachineCount);
-        SimulationContext context = new SimulationContext(iaasContext);
+        RequestData lastUpdateData = requestDataService.getLastData(); // utolsó frissítési kérés lekérése
+        IaaSContext iaasContext = iaaSManagerService.initializeIaaS(physicalMachineCount); // fizikai infrastruktúra inicializálása
+        SimulationContext context = new SimulationContext(iaasContext); // szimulációs kontextus létrehozása
 
-        vmFactory.createVirtualMachines(lastUpdateData, context);
+        vmFactory.createVirtualMachines(lastUpdateData, context); // VM-ek létrehozása
         return context;
     }
 
     /**
-     * Elindítja a szimulációs események futását és inicializálja az energiafogyasztási modellt
+     * A szimulációs események elindítása és energiafogyasztás-gyűjtő eszköz aktiválása.
+     *
+     * @param context a szimuláció kontextusa
      */
     public void startSimulation(SimulationContext context) {
-        Timed.simulateUntilLastEvent();
-        setStarttime(Timed.getFireCount());
-        energyService.setupEDC(context.getIaasContext());
+        Timed.simulateUntilLastEvent(); // elindítja az összes eddig beütemezett esemény szimulációját
+        setStarttime(Timed.getFireCount()); // menti a kezdési időpontot
+        energyService.setupEDC(context.getIaasContext()); // energiafogyasztás figyelés aktiválása
     }
 
     /**
-     * Lefuttatja a szimulációt adott percig
+     * Szimuláció futtatása meghatározott percekig.
+     *
+     * @param minutes futtatási idő percben
      */
     public void runSimulation(int minutes) {
+        // futtatja a szimulációt az aktuális szimulációs idő + megadott időintervallumig
         Timed.simulateUntil(Timed.getFireCount() + (60L * 1000 * minutes));
     }
 
     /**
-     * Szimuláció lezárása, statisztikák generálása és erőforrások felszabadítása
+     * Szimuláció lezárása, energiafogyasztás lekérése, statisztikák legenerálása, és erőforrások felszabadítása.
+     *
+     * @param context a szimuláció kontextusa
+     * @param lastUpdateData utolsó frissítési adat
+     * @param backUpVms mentésre létrehozott VM-ek (pl. skálázáskor)
+     * @return a szimuláció eredményeit tartalmazó statisztika szöveg
      */
     public String finalizeSimulation(SimulationContext context, RequestData lastUpdateData,
                                      Map<String, VirtualMachine> backUpVms) {
-        setStoptime(Timed.getFireCount());
-        double totalEnergyConsumption = energyService.stopEDC();
-        context.getMetrics().addEnergyConsumption(totalEnergyConsumption);
+        setStoptime(Timed.getFireCount()); // szimulációs idő leállítása
+        double totalEnergyConsumption = energyService.stopEDC(); // energiafogyasztás összegyűjtése és EDC leállítása
+        context.getMetrics().addEnergyConsumption(totalEnergyConsumption); // energia metrika elmentése
 
+        // statisztikák legenerálása (pl. időtartam, energia, adatmozgatás, VM szám, stb.)
         String stats = simulationStatsService.generateRuntimeStats(
                 getStoptime() - getStarttime(),
                 lastUpdateData,
@@ -89,20 +104,22 @@ public class SimulationLifecycleManager {
                 context.getMetrics().getTotalTasks()
         );
 
-        cleanupSimulation(backUpVms);
+        cleanupSimulation(backUpVms); // szimuláció erőforrásainak felszabadítása
         return stats;
     }
 
+    /**
+     * Szimuláció után az időkezelő és energia log mentése, backup VM-ek törlése.
+     */
     private void cleanupSimulation(Map<String, VirtualMachine> backUpVms) {
-        EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory);
-        Timed.resetTimed();
+        EnergyDataCollector.writeToFile(ScenarioBase.resultDirectory); // energiafogyasztási log fájlba írás
+        Timed.resetTimed(); // Timed singleton visszaállítása
 
         if (backUpVms != null && !backUpVms.isEmpty()) {
-            backUpVms.clear();
+            backUpVms.clear(); // backup VM-ek eltávolítása a memóriából
         }
     }
 
-    // Getters and Setters
     public long getStarttime() {
         return starttime;
     }
