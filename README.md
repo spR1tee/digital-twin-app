@@ -11,7 +11,7 @@ This project demonstrates the integration of Digital Twin technology with IoT-Fo
 2. Clone the Dummy App repository from [here](https://github.com/spR1tee/dummy-app)
 3. Open both projects in IntelliJ
 4. Start the Digital Twin App by simply running **StartApplication.java**
-5. Start the Dummy App by simply running **DummyAppApplication.java**
+5. Start the Dummy App by simply running **DummyApplication.java**
 
 ## Usage
 
